@@ -1,35 +1,53 @@
 import 'mocha'
 
+import { delay } from 'bluebird'
 import * as chai from 'chai'
+import { Observable, Observer } from 'rxjs'
 import * as sinon from 'sinon'
-import {
-  PassThrough
-} from 'stream'
 
 import {
+  Device,
+  DeviceManager,
+  Message,
+  MessageQueueImmediate,
+  MessageRouterTestCallback,
+  Progress,
+} from '@electricui/core'
+import {
+  MESSAGEID_INCOMING_RW_MESSAGEIDS_COUNT,
+  MESSAGEID_INCOMING_RW_MESSAGEIDS_LIST,
+  MESSAGEID_REQUEST_RW_MESSAGEIDS,
+  MESSAGEID_REQUEST_RW_OBJECTS,
   Packet,
-  TYPES
+  TYPES,
 } from '@electricui/protocol-constants'
 
-import {
-  ConnectionHandshake,
-  RECEIVED,
-  RECEIVED_COUNT,
-  REQUEST,
-  TIMEOUT
-} from '../src/handshake'
+import { ConnectionHandshake, RECEIVED, RECEIVED_COUNT, REQUEST, TIMEOUT } from '../src/handshake'
 
 const assert = chai.assert
 
 describe('Connection Handshake State Machine', () => {
   it('finishes when the correct amount is received', () => {
-    const readInterface = new PassThrough({ objectMode: true })
-    const writeInterface = new PassThrough({ objectMode: true })
+    const writeToDeviceCallback = sinon.spy()
+
+    const deviceManager = new DeviceManager()
+    const device = new Device('mock', deviceManager)
+    new MessageQueueImmediate(device)
+    new MessageRouterTestCallback(device, writeToDeviceCallback)
 
     const connectionHandshake = new ConnectionHandshake({
-      readInterface,
-      writeInterface,
+      device: device,
+      externalTiming: true,
+      requestListMessageID: MESSAGEID_REQUEST_RW_MESSAGEIDS,
+      requestObjectsMessageID: MESSAGEID_REQUEST_RW_OBJECTS,
+      listMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_LIST,
+      amountMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_COUNT,
     })
+
+    const progressSpy = sinon.spy()
+    const errorSpy = sinon.spy()
+    const completeSpy = sinon.spy()
+    connectionHandshake.observable.subscribe(progressSpy, errorSpy, completeSpy)
 
     connectionHandshake.dispatch({ type: REQUEST })
     connectionHandshake.dispatch({ type: RECEIVED, payload: ['abc', 'def'] })
@@ -38,27 +56,30 @@ describe('Connection Handshake State Machine', () => {
     connectionHandshake.dispatch({ type: RECEIVED, messageID: 'def', payload: 456, }) // prettier-ignore
 
     assert.strictEqual(connectionHandshake.currentState.value, 'finish')
+    assert.isTrue(completeSpy.called)
   })
 
-  it('retries when the incorrect amount is received', () => {
-    const sendCallbackSpy = sinon.spy()
-    const sendQuerySpy = sinon.spy()
+  it('retries when the incorrect amount is received', async () => {
+    const writeToDeviceCallback = sinon.spy()
 
-    const readInterface = new PassThrough({ objectMode: true })
-    const writeInterface = new PassThrough({ objectMode: true })
-
-    writeInterface.on('data', (packet: Packet) => {
-      if (packet.query) {
-        sendQuerySpy(packet.messageID)
-      } else if (packet.type === TYPES.CALLBACK) {
-        sendCallbackSpy(packet.messageID)
-      }
-    })
+    const deviceManager = new DeviceManager()
+    const device = new Device('mock', deviceManager)
+    new MessageQueueImmediate(device)
+    new MessageRouterTestCallback(device, writeToDeviceCallback)
 
     const connectionHandshake = new ConnectionHandshake({
-      readInterface,
-      writeInterface,
+      device: device,
+      externalTiming: true,
+      requestListMessageID: MESSAGEID_REQUEST_RW_MESSAGEIDS,
+      requestObjectsMessageID: MESSAGEID_REQUEST_RW_OBJECTS,
+      listMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_LIST,
+      amountMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_COUNT,
     })
+
+    const progressSpy = sinon.spy()
+    const errorSpy = sinon.spy()
+    const completeSpy = sinon.spy()
+    connectionHandshake.observable.subscribe(progressSpy, errorSpy, completeSpy)
 
     connectionHandshake.dispatch({ type: REQUEST })
     connectionHandshake.dispatch({ type: RECEIVED, payload: ['abc', 'def'] })
@@ -67,20 +88,38 @@ describe('Connection Handshake State Machine', () => {
     connectionHandshake.dispatch({ type: TIMEOUT })
     connectionHandshake.dispatch({ type: RECEIVED, messageID: 'def', payload: 456, }) // prettier-ignore
 
-    assert.isTrue(sendQuerySpy.called)
-    assert.deepEqual(sendQuerySpy.getCall(0).args[0], 'def')
+    assert.isTrue(writeToDeviceCallback.called)
+
+    // it should be the third call
+    const queryMessage: Message = writeToDeviceCallback.getCall(2).args[0]
+
+    assert.deepEqual(queryMessage.messageID, 'def')
+    assert.isTrue(queryMessage.metadata.query)
 
     assert.strictEqual(connectionHandshake.currentState.value, 'finish')
+    assert.isTrue(completeSpy.called)
   })
 
   it('retries a fixed amount of times when missing members of the message ID list', () => {
-    const readInterface = new PassThrough({ objectMode: true })
-    const writeInterface = new PassThrough({ objectMode: true })
+    const writeToDeviceCallback = sinon.spy()
+    const deviceManager = new DeviceManager()
+    const device = new Device('mock', deviceManager)
+    new MessageQueueImmediate(device)
+    new MessageRouterTestCallback(device, writeToDeviceCallback)
 
     const connectionHandshake = new ConnectionHandshake({
-      readInterface,
-      writeInterface,
+      device: device,
+      externalTiming: true,
+      requestListMessageID: MESSAGEID_REQUEST_RW_MESSAGEIDS,
+      requestObjectsMessageID: MESSAGEID_REQUEST_RW_OBJECTS,
+      listMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_LIST,
+      amountMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_COUNT,
     })
+
+    const progressSpy = sinon.spy()
+    const errorSpy = sinon.spy()
+    const completeSpy = sinon.spy()
+    connectionHandshake.observable.subscribe(progressSpy, errorSpy, completeSpy)
 
     connectionHandshake.dispatch({ type: REQUEST })
     connectionHandshake.dispatch({ type: RECEIVED, payload: ['abc', 'def'] })
@@ -94,16 +133,29 @@ describe('Connection Handshake State Machine', () => {
     connectionHandshake.dispatch({ type: RECEIVED_COUNT, payload: 4 })
 
     assert.strictEqual(connectionHandshake.currentState.value, 'fail')
+    assert.isTrue(errorSpy.called)
   })
 
   it('succeeds when only getting partial data per retry', () => {
-    const readInterface = new PassThrough({ objectMode: true })
-    const writeInterface = new PassThrough({ objectMode: true })
+    const writeToDeviceCallback = sinon.spy()
+    const deviceManager = new DeviceManager()
+    const device = new Device('mock', deviceManager)
+    new MessageQueueImmediate(device)
+    new MessageRouterTestCallback(device, writeToDeviceCallback)
 
     const connectionHandshake = new ConnectionHandshake({
-      readInterface,
-      writeInterface,
+      device: device,
+      externalTiming: true,
+      requestListMessageID: MESSAGEID_REQUEST_RW_MESSAGEIDS,
+      requestObjectsMessageID: MESSAGEID_REQUEST_RW_OBJECTS,
+      listMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_LIST,
+      amountMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_COUNT,
     })
+
+    const progressSpy = sinon.spy()
+    const errorSpy = sinon.spy()
+    const completeSpy = sinon.spy()
+    connectionHandshake.observable.subscribe(progressSpy, errorSpy, completeSpy)
 
     connectionHandshake.dispatch({ type: REQUEST })
     connectionHandshake.dispatch({ type: RECEIVED, payload: ['abc', 'def'] })
@@ -122,5 +174,6 @@ describe('Connection Handshake State Machine', () => {
     connectionHandshake.dispatch({ type: RECEIVED, messageID: 'jki', payload: 456, }) // prettier-ignore
 
     assert.strictEqual(connectionHandshake.currentState.value, 'finish')
+    assert.isTrue(completeSpy.called)
   })
 })
