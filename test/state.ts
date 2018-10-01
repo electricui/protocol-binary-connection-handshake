@@ -26,28 +26,41 @@ import { ConnectionHandshake, RECEIVED, RECEIVED_COUNT, REQUEST, TIMEOUT } from 
 
 const assert = chai.assert
 
+const testFactory = () => {
+  const writeToDeviceCallback = sinon.spy()
+  const deviceManager = new DeviceManager()
+  const device = new Device('mock', deviceManager)
+  new MessageQueueImmediate(device)
+  new MessageRouterTestCallback(device, writeToDeviceCallback)
+
+  const connectionHandshake = new ConnectionHandshake({
+    device: device,
+    externalTiming: true,
+    requestListMessageID: MESSAGEID_REQUEST_RW_MESSAGEIDS,
+    requestObjectsMessageID: MESSAGEID_REQUEST_RW_OBJECTS,
+    listMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_LIST,
+    amountMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_COUNT,
+  })
+
+  const progressSpy = sinon.spy()
+  const errorSpy = sinon.spy()
+  const completeSpy = sinon.spy()
+  connectionHandshake.observable.subscribe(progressSpy, errorSpy, completeSpy)
+
+  return {
+    deviceManager,
+    device,
+    connectionHandshake,
+    progressSpy,
+    errorSpy,
+    completeSpy,
+    writeToDeviceCallback,
+  }
+}
+
 describe('Connection Handshake State Machine', () => {
   it('finishes when the correct amount is received', () => {
-    const writeToDeviceCallback = sinon.spy()
-
-    const deviceManager = new DeviceManager()
-    const device = new Device('mock', deviceManager)
-    new MessageQueueImmediate(device)
-    new MessageRouterTestCallback(device, writeToDeviceCallback)
-
-    const connectionHandshake = new ConnectionHandshake({
-      device: device,
-      externalTiming: true,
-      requestListMessageID: MESSAGEID_REQUEST_RW_MESSAGEIDS,
-      requestObjectsMessageID: MESSAGEID_REQUEST_RW_OBJECTS,
-      listMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_LIST,
-      amountMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_COUNT,
-    })
-
-    const progressSpy = sinon.spy()
-    const errorSpy = sinon.spy()
-    const completeSpy = sinon.spy()
-    connectionHandshake.observable.subscribe(progressSpy, errorSpy, completeSpy)
+    const { connectionHandshake, completeSpy } = testFactory()
 
     connectionHandshake.dispatch({ type: REQUEST })
     connectionHandshake.dispatch({ type: RECEIVED, payload: ['abc', 'def'] })
@@ -60,26 +73,11 @@ describe('Connection Handshake State Machine', () => {
   })
 
   it('retries when the incorrect amount is received', async () => {
-    const writeToDeviceCallback = sinon.spy()
-
-    const deviceManager = new DeviceManager()
-    const device = new Device('mock', deviceManager)
-    new MessageQueueImmediate(device)
-    new MessageRouterTestCallback(device, writeToDeviceCallback)
-
-    const connectionHandshake = new ConnectionHandshake({
-      device: device,
-      externalTiming: true,
-      requestListMessageID: MESSAGEID_REQUEST_RW_MESSAGEIDS,
-      requestObjectsMessageID: MESSAGEID_REQUEST_RW_OBJECTS,
-      listMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_LIST,
-      amountMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_COUNT,
-    })
-
-    const progressSpy = sinon.spy()
-    const errorSpy = sinon.spy()
-    const completeSpy = sinon.spy()
-    connectionHandshake.observable.subscribe(progressSpy, errorSpy, completeSpy)
+    const {
+      connectionHandshake,
+      completeSpy,
+      writeToDeviceCallback,
+    } = testFactory()
 
     connectionHandshake.dispatch({ type: REQUEST })
     connectionHandshake.dispatch({ type: RECEIVED, payload: ['abc', 'def'] })
@@ -101,25 +99,7 @@ describe('Connection Handshake State Machine', () => {
   })
 
   it('retries a fixed amount of times when missing members of the message ID list', () => {
-    const writeToDeviceCallback = sinon.spy()
-    const deviceManager = new DeviceManager()
-    const device = new Device('mock', deviceManager)
-    new MessageQueueImmediate(device)
-    new MessageRouterTestCallback(device, writeToDeviceCallback)
-
-    const connectionHandshake = new ConnectionHandshake({
-      device: device,
-      externalTiming: true,
-      requestListMessageID: MESSAGEID_REQUEST_RW_MESSAGEIDS,
-      requestObjectsMessageID: MESSAGEID_REQUEST_RW_OBJECTS,
-      listMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_LIST,
-      amountMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_COUNT,
-    })
-
-    const progressSpy = sinon.spy()
-    const errorSpy = sinon.spy()
-    const completeSpy = sinon.spy()
-    connectionHandshake.observable.subscribe(progressSpy, errorSpy, completeSpy)
+    const { connectionHandshake, errorSpy } = testFactory()
 
     connectionHandshake.dispatch({ type: REQUEST })
     connectionHandshake.dispatch({ type: RECEIVED, payload: ['abc', 'def'] })
@@ -137,25 +117,7 @@ describe('Connection Handshake State Machine', () => {
   })
 
   it('succeeds when only getting partial data per retry', () => {
-    const writeToDeviceCallback = sinon.spy()
-    const deviceManager = new DeviceManager()
-    const device = new Device('mock', deviceManager)
-    new MessageQueueImmediate(device)
-    new MessageRouterTestCallback(device, writeToDeviceCallback)
-
-    const connectionHandshake = new ConnectionHandshake({
-      device: device,
-      externalTiming: true,
-      requestListMessageID: MESSAGEID_REQUEST_RW_MESSAGEIDS,
-      requestObjectsMessageID: MESSAGEID_REQUEST_RW_OBJECTS,
-      listMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_LIST,
-      amountMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_COUNT,
-    })
-
-    const progressSpy = sinon.spy()
-    const errorSpy = sinon.spy()
-    const completeSpy = sinon.spy()
-    connectionHandshake.observable.subscribe(progressSpy, errorSpy, completeSpy)
+    const { connectionHandshake, completeSpy } = testFactory()
 
     connectionHandshake.dispatch({ type: REQUEST })
     connectionHandshake.dispatch({ type: RECEIVED, payload: ['abc', 'def'] })

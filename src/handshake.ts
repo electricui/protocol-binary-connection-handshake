@@ -366,8 +366,8 @@ export class ConnectionHandshake extends DeviceHandshake {
     this.timeout = options.timeout || 1000
     this._externalTiming = options.externalTiming || false
 
-    this.getObservable = this.getObservable.bind(this)
-    this.observable = new Observable(this.getObservable)
+    this.onSubscribe = this.onSubscribe.bind(this)
+    this.observable = new Observable(this.onSubscribe)
 
     this.progress = this.progress.bind(this)
     this.error = this.error.bind(this)
@@ -375,10 +375,12 @@ export class ConnectionHandshake extends DeviceHandshake {
     this.cancel = this.cancel.bind(this)
   }
 
-  getObservable(observer: Observer<Progress>) {
+  onSubscribe(observer: Observer<Progress>) {
     this.progress = (progress: Progress) => observer.next(progress)
     this.error = (err: Error) => observer.error(err)
     this.complete = () => observer.complete()
+
+    this.connect()
 
     return () => this.cancel()
   }
