@@ -1,10 +1,12 @@
-import { Observable } from 'rxjs'
-import { Machine, matchesState } from 'xstate'
+import { Observable, Observer } from 'rxjs'
+import { matchesState, Machine } from 'xstate'
 
 import { Device, DeviceHandshake, Message, Progress } from '@electricui/core'
 import { TYPES } from '@electricui/protocol-constants'
 
-const debug = require('debug')('electricui-core-connection-handshake:handshake')
+const debug = require('debug')(
+  'electricui-binary-connection-handshake:handshake',
+)
 
 interface Event {
   type: string
@@ -59,7 +61,7 @@ const actionMap: ActionMap = {
     const allReceived = fullState.messageIDsReceived
 
     for (const messageID of allReceived) {
-      fullState.messageIDObjects[messageID] = undefined
+      fullState.messageIDObjects.set(messageID, undefined)
     }
   },
   requestIndividual: (
@@ -70,7 +72,7 @@ const actionMap: ActionMap = {
     const allMessageIDs = fullState.messageIDsReceived
 
     for (const messageID of allMessageIDs) {
-      if (fullState.messageIDObjects[messageID] === undefined) {
+      if (fullState.messageIDObjects.get(messageID) === undefined) {
         fullState.sendQuery(messageID)
         return
       }
@@ -245,7 +247,7 @@ const stateMachine = Machine(
         const allMessageIDs = fullState.messageIDsReceived
 
         for (const messageID of allMessageIDs) {
-          const value = fullState.messageIDObjects[messageID]
+          const value = fullState.messageIDObjects.get(messageID)
 
           if (value !== undefined) {
             return false
@@ -256,13 +258,13 @@ const stateMachine = Machine(
       },
       addObjectCheckIfAllReceived: (fullState: FullStateShape, event) => {
         // add the object
-        fullState.messageIDObjects[event.messageID] = event.payload
+        fullState.messageIDObjects.set(event.messageID, event.payload)
 
         // and check if we're done
         const allMessageIDs = fullState.messageIDsReceived
 
         for (const messageID of allMessageIDs) {
-          const value = fullState.messageIDObjects[messageID]
+          const value = fullState.messageIDObjects.get(messageID)
 
           if (value === undefined) {
             return false
@@ -284,9 +286,7 @@ interface FullStateShape {
   listMessageID: string
   amountMessageID: string
   messageIDsReceived: Array<string>
-  messageIDObjects: {
-    [key: string]: any
-  }
+  messageIDObjects: Map<string, any>
   retries: number
   maxRetries: number
   individualRequestMode: boolean
@@ -326,15 +326,17 @@ export class ConnectionHandshake extends DeviceHandshake {
   // these will be immediately overwritten in the constructor
   progress: (value: Progress) => void = () => {
     throw new Error(
-      "The observable didn't correctly provide a progress callback",
+      'The handshake must be subscribed to before events are received',
     )
   }
   error: (err: Error) => void = () => {
-    throw new Error("The observable didn't correctly provide an error callback")
+    throw new Error(
+      'The handshake must be subscribed to before events are received',
+    )
   }
   complete: () => void = () => {
     throw new Error(
-      "The observable didn't correctly provide a complete callback",
+      'The handshake must be subscribed to before events are received',
     )
   }
 
@@ -347,7 +349,7 @@ export class ConnectionHandshake extends DeviceHandshake {
       amountMessageID: options.amountMessageID,
       listMessageID: options.listMessageID,
       messageIDsReceived: [],
-      messageIDObjects: {},
+      messageIDObjects: new Map(),
       retries: 0,
       maxRetries: 2,
       individualRequestMode: false,
@@ -364,18 +366,21 @@ export class ConnectionHandshake extends DeviceHandshake {
     this.timeout = options.timeout || 1000
     this._externalTiming = options.externalTiming || false
 
-    this.observable = new Observable(observer => {
-      this.progress = observer.next
-      this.error = observer.error
-      this.complete = observer.complete
-
-      return () => this.cancel()
-    })
+    this.getObservable = this.getObservable.bind(this)
+    this.observable = new Observable(this.getObservable)
 
     this.progress = this.progress.bind(this)
     this.error = this.error.bind(this)
     this.complete = this.complete.bind(this)
     this.cancel = this.cancel.bind(this)
+  }
+
+  getObservable(observer: Observer<Progress>) {
+    this.progress = (progress: Progress) => observer.next(progress)
+    this.error = (err: Error) => observer.error(err)
+    this.complete = () => observer.complete()
+
+    return () => this.cancel()
   }
 
   getNow = () => {
@@ -432,8 +437,13 @@ export class ConnectionHandshake extends DeviceHandshake {
 
     debug('Handshake succeeded!')
 
-    // TODO: Have the device receive all of these
-    // this.fullState.messageIDObjects
+    for (const [messageID, payload] of this.fullState.messageIDObjects) {
+      const message = new Message(messageID, payload)
+      message.metadata.internal = false
+
+      this.device.manager.receive(this.device, message)
+    }
+
     this.complete()
   }
 
