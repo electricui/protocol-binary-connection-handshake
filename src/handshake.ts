@@ -2,7 +2,7 @@ import { Observable, Observer } from 'rxjs'
 import { matchesState, Machine } from 'xstate'
 
 import { Device, DeviceHandshake, Message, Progress } from '@electricui/core'
-import { TYPES } from '@electricui/protocol-constants'
+import { TYPES } from '@electricui/protocol-binary-constants'
 
 const debug = require('debug')(
   'electricui-binary-connection-handshake:handshake',

@@ -2,7 +2,6 @@ import 'mocha'
 
 import * as chai from 'chai'
 import * as sinon from 'sinon'
-import { PassThrough } from 'stream'
 
 import {
   Connection,
@@ -12,22 +11,10 @@ import {
   Message,
   MessageQueueImmediate,
   MessageRouterTestCallback,
-  Progress,
 } from '@electricui/core'
-import {
-  MESSAGEID_INCOMING_RO_MESSAGEIDS_COUNT,
-  MESSAGEID_INCOMING_RO_MESSAGEIDS_LIST,
-  MESSAGEID_INCOMING_RW_MESSAGEIDS_COUNT,
-  MESSAGEID_INCOMING_RW_MESSAGEIDS_LIST,
-  MESSAGEID_REQUEST_RO_MESSAGEIDS,
-  MESSAGEID_REQUEST_RO_OBJECTS,
-  MESSAGEID_REQUEST_RW_MESSAGEIDS,
-  MESSAGEID_REQUEST_RW_OBJECTS,
-  Packet,
-  TYPES,
-} from '@electricui/protocol-constants'
+import { MESSAGEIDS, TYPES } from '@electricui/protocol-binary-constants'
 
-import { ConnectionHandshake, RECEIVED, RECEIVED_COUNT, REQUEST, TIMEOUT } from '../src/handshake'
+import { ConnectionHandshake } from '../src/handshake'
 
 const assert = chai.assert
 
@@ -51,15 +38,15 @@ describe('Connection Handshake', () => {
           device.receive(new Message(message.messageID, 0), connection)
         } else if (message.metadata.type === TYPES.CALLBACK) {
           switch (message.messageID) {
-            case MESSAGEID_REQUEST_RW_MESSAGEIDS:
+            case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST:
               const listMessage = new Message(
-                MESSAGEID_INCOMING_RW_MESSAGEIDS_LIST,
+                MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
                 ['abc', 'def'],
               )
               listMessage.metadata.internal = true
 
               const countMessage = new Message(
-                MESSAGEID_INCOMING_RW_MESSAGEIDS_COUNT,
+                MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
                 2,
               )
               countMessage.metadata.internal = true
@@ -68,7 +55,7 @@ describe('Connection Handshake', () => {
               device.receive(countMessage, connection)
 
               break
-            case MESSAGEID_REQUEST_RW_OBJECTS:
+            case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS:
               const abc = new Message('abc', 0)
               device.receive(abc, connection)
 
@@ -88,10 +75,11 @@ describe('Connection Handshake', () => {
     const connectionHandshake = new ConnectionHandshake({
       device: device,
       externalTiming: true,
-      requestListMessageID: MESSAGEID_REQUEST_RW_MESSAGEIDS,
-      requestObjectsMessageID: MESSAGEID_REQUEST_RW_OBJECTS,
-      listMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_LIST,
-      amountMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_COUNT,
+      requestListMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST,
+      requestObjectsMessageID:
+        MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS,
+      listMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
+      amountMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
     })
 
     const progressSpy = sinon.spy()
@@ -136,14 +124,12 @@ describe('Connection Handshake', () => {
     // this is a mock device
     const underlyingDevice = async (message: Message) => {
       setImmediate(() => {
-        console.log('underying', message)
-
         if (message.metadata.query) {
           // if something gets queried,
           device.receive(new Message(message.messageID, 0), connection)
         } else if (message.metadata.type === TYPES.CALLBACK) {
           switch (message.messageID) {
-            case MESSAGEID_REQUEST_RW_MESSAGEIDS:
+            case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST:
               switch (listRequestNumber) {
                 case 0:
                   // send nothing first time
@@ -151,13 +137,13 @@ describe('Connection Handshake', () => {
                 case 1:
                   // send half the messages second time
                   const listMessage1 = new Message(
-                    MESSAGEID_INCOMING_RW_MESSAGEIDS_LIST,
+                    MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
                     ['abc'],
                   )
                   listMessage1.metadata.internal = true
 
                   const countMessage1 = new Message(
-                    MESSAGEID_INCOMING_RW_MESSAGEIDS_COUNT,
+                    MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
                     2,
                   )
                   countMessage1.metadata.internal = true
@@ -169,13 +155,13 @@ describe('Connection Handshake', () => {
                 default:
                   // send all messages the third time
                   const listMessage2 = new Message(
-                    MESSAGEID_INCOMING_RW_MESSAGEIDS_LIST,
+                    MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
                     ['abc', 'def'],
                   )
                   listMessage2.metadata.internal = true
 
                   const countMessage2 = new Message(
-                    MESSAGEID_INCOMING_RW_MESSAGEIDS_COUNT,
+                    MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
                     2,
                   )
                   countMessage2.metadata.internal = true
@@ -187,7 +173,7 @@ describe('Connection Handshake', () => {
 
               listRequestNumber = listRequestNumber + 1
               break
-            case MESSAGEID_REQUEST_RW_OBJECTS:
+            case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS:
               switch (objectRequestNumber) {
                 case 0:
                   // send nothing the first time
@@ -223,10 +209,11 @@ describe('Connection Handshake', () => {
     const connectionHandshake = new ConnectionHandshake({
       device: device,
       externalTiming: true,
-      requestListMessageID: MESSAGEID_REQUEST_RW_MESSAGEIDS,
-      requestObjectsMessageID: MESSAGEID_REQUEST_RW_OBJECTS,
-      listMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_LIST,
-      amountMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_COUNT,
+      requestListMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST,
+      requestObjectsMessageID:
+        MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS,
+      listMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
+      amountMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
     })
 
     const progressSpy = sinon.spy()
@@ -285,10 +272,11 @@ describe('Connection Handshake', () => {
     const connectionHandshake = new ConnectionHandshake({
       device: device,
       externalTiming: true,
-      requestListMessageID: MESSAGEID_REQUEST_RW_MESSAGEIDS,
-      requestObjectsMessageID: MESSAGEID_REQUEST_RW_OBJECTS,
-      listMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_LIST,
-      amountMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_COUNT,
+      requestListMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST,
+      requestObjectsMessageID:
+        MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS,
+      listMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
+      amountMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
     })
 
     const progressSpy = sinon.spy()
@@ -337,18 +325,18 @@ describe('Connection Handshake', () => {
           device.receive(new Message(message.messageID, 0), connection)
         } else if (message.metadata.type === TYPES.CALLBACK) {
           switch (message.messageID) {
-            case MESSAGEID_REQUEST_RW_MESSAGEIDS:
+            case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST:
               // Cancel, then send some data
               unsubscribeHandler()
 
               const listMessage = new Message(
-                MESSAGEID_INCOMING_RW_MESSAGEIDS_LIST,
+                MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
                 ['abc', 'def'],
               )
               listMessage.metadata.internal = true
 
               const countMessage = new Message(
-                MESSAGEID_INCOMING_RW_MESSAGEIDS_COUNT,
+                MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
                 2,
               )
               countMessage.metadata.internal = true
@@ -357,7 +345,7 @@ describe('Connection Handshake', () => {
               device.receive(countMessage, connection)
 
               break
-            case MESSAGEID_REQUEST_RW_OBJECTS:
+            case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS:
               throw new Error('It should have cancelled itself by now')
               break
             default:
@@ -373,10 +361,11 @@ describe('Connection Handshake', () => {
     const connectionHandshake = new ConnectionHandshake({
       device: device,
       externalTiming: true,
-      requestListMessageID: MESSAGEID_REQUEST_RW_MESSAGEIDS,
-      requestObjectsMessageID: MESSAGEID_REQUEST_RW_OBJECTS,
-      listMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_LIST,
-      amountMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_COUNT,
+      requestListMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST,
+      requestObjectsMessageID:
+        MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS,
+      listMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
+      amountMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
     })
 
     const progressSpy = sinon.spy()
