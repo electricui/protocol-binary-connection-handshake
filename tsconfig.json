@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "module": "CommonJS",
+    "module": "ESNext",
     "esModuleInterop": true,
     "target": "ES2018",
     "noImplicitAny": true,
@@ -10,7 +10,7 @@
     "sourceMap": true,
     "declaration": true,
     "baseUrl": ".",
-    "outDir": "./lib/index.js",
+    "outDir": "./lib",
     "paths": {
       "*": ["node_modules/*", "src/types/*"]
     }

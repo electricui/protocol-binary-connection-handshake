@@ -1,5 +1,3 @@
-import {
-  ConnectionHandshake
-} from './src/handshake'
+import BinaryConnectionHandshake from './src/handshake'
 
-export { ConnectionHandshake }
+export default BinaryConnectionHandshake

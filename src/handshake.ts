@@ -314,7 +314,7 @@ interface ResponseObject {
   [key: string]: any
 }
 
-export class ConnectionHandshake extends DeviceHandshake {
+export default class BinaryConnectionHandshake extends DeviceHandshake {
   currentState = stateMachine.initialState // starts as request_amount
   fullState: FullStateShape
   _lastReceived: number = 0

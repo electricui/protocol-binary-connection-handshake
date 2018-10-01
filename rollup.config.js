@@ -1,10 +1,22 @@
+import autoExternal from 'rollup-plugin-auto-external'
+import path from 'path'
 import typescript from 'rollup-plugin-typescript2'
 
-export default {
-  input: 'index.ts',
-  output: {
-    file: 'lib/index.js',
-    format: 'cjs',
-  },
-  plugins: [typescript()],
+export default async a => {
+  return {
+    input: 'index.ts',
+    output: [
+      { format: 'cjs', file: path.resolve(__dirname, 'lib', `index.js`) },
+      { format: 'es', file: path.resolve(__dirname, 'lib', `index.mjs`) },
+    ],
+    plugins: [
+      autoExternal({
+        builtins: true,
+        dependencies: true,
+        packagePath: path.resolve(__dirname, 'package.json'),
+        peerDependencies: true,
+      }),
+      typescript(),
+    ],
+  }
 }

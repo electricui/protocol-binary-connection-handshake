@@ -14,7 +14,7 @@ import {
 } from '@electricui/core'
 import { MESSAGEIDS, TYPES } from '@electricui/protocol-binary-constants'
 
-import { ConnectionHandshake } from '../src/handshake'
+import BinaryConnectionHandshake from '../src/handshake'
 
 const assert = chai.assert
 
@@ -72,7 +72,7 @@ describe('Connection Handshake', () => {
     new MessageQueueImmediate(device)
     new MessageRouterTestCallback(device, underlyingDevice)
 
-    const connectionHandshake = new ConnectionHandshake({
+    const connectionHandshake = new BinaryConnectionHandshake({
       device: device,
       externalTiming: true,
       requestListMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST,
@@ -206,7 +206,7 @@ describe('Connection Handshake', () => {
     new MessageQueueImmediate(device)
     new MessageRouterTestCallback(device, underlyingDevice)
 
-    const connectionHandshake = new ConnectionHandshake({
+    const connectionHandshake = new BinaryConnectionHandshake({
       device: device,
       externalTiming: true,
       requestListMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST,
@@ -269,7 +269,7 @@ describe('Connection Handshake', () => {
     new MessageQueueImmediate(device)
     new MessageRouterTestCallback(device, underlyingDevice)
 
-    const connectionHandshake = new ConnectionHandshake({
+    const connectionHandshake = new BinaryConnectionHandshake({
       device: device,
       externalTiming: true,
       requestListMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST,
@@ -358,7 +358,7 @@ describe('Connection Handshake', () => {
     new MessageQueueImmediate(device)
     new MessageRouterTestCallback(device, underlyingDevice)
 
-    const connectionHandshake = new ConnectionHandshake({
+    const connectionHandshake = new BinaryConnectionHandshake({
       device: device,
       externalTiming: true,
       requestListMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST,

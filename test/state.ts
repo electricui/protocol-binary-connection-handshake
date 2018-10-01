@@ -13,16 +13,14 @@ import {
   MessageRouterTestCallback,
   Progress,
 } from '@electricui/core'
-import {
-  MESSAGEID_INCOMING_RW_MESSAGEIDS_COUNT,
-  MESSAGEID_INCOMING_RW_MESSAGEIDS_LIST,
-  MESSAGEID_REQUEST_RW_MESSAGEIDS,
-  MESSAGEID_REQUEST_RW_OBJECTS,
-  Packet,
-  TYPES,
-} from '@electricui/protocol-constants'
+import { TYPES } from '@electricui/protocol-binary-constants'
 
-import { ConnectionHandshake, RECEIVED, RECEIVED_COUNT, REQUEST, TIMEOUT } from '../src/handshake'
+import BinaryConnectionHandshake, {
+  RECEIVED,
+  RECEIVED_COUNT,
+  REQUEST,
+  TIMEOUT,
+} from '../src/handshake'
 
 const assert = chai.assert
 
@@ -33,13 +31,13 @@ const testFactory = () => {
   new MessageQueueImmediate(device)
   new MessageRouterTestCallback(device, writeToDeviceCallback)
 
-  const connectionHandshake = new ConnectionHandshake({
+  const connectionHandshake = new BinaryConnectionHandshake({
     device: device,
     externalTiming: true,
-    requestListMessageID: MESSAGEID_REQUEST_RW_MESSAGEIDS,
-    requestObjectsMessageID: MESSAGEID_REQUEST_RW_OBJECTS,
-    listMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_LIST,
-    amountMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_COUNT,
+    requestListMessageID: 'c',
+    requestObjectsMessageID: 'd',
+    listMessageID: 'b',
+    amountMessageID: 'a',
   })
 
   const progressSpy = sinon.spy()
