@@ -318,4 +318,102 @@ describe('Connection Handshake', () => {
     assert.exists(err)
     assert.instanceOf(err, Error)
   })
+  it('cancels everything when told to', async () => {
+    const deviceManager = new DeviceManager()
+    const device = new Device('mock', deviceManager)
+    const connectionInterface = new ConnectionInterface()
+    const connection = new Connection({ connectionInterface })
+
+    let unsubscribeHandler = () => {
+      console.error(
+        "Something weird happened and the unsubscribeHandler didn't get attached",
+      )
+    }
+
+    const underlyingDevice = async (message: Message) => {
+      setImmediate(() => {
+        if (message.metadata.query) {
+          // if something gets queried,
+          device.receive(new Message(message.messageID, 0), connection)
+        } else if (message.metadata.type === TYPES.CALLBACK) {
+          switch (message.messageID) {
+            case MESSAGEID_REQUEST_RW_MESSAGEIDS:
+              // Cancel, then send some data
+              unsubscribeHandler()
+
+              const listMessage = new Message(
+                MESSAGEID_INCOMING_RW_MESSAGEIDS_LIST,
+                ['abc', 'def'],
+              )
+              listMessage.metadata.internal = true
+
+              const countMessage = new Message(
+                MESSAGEID_INCOMING_RW_MESSAGEIDS_COUNT,
+                2,
+              )
+              countMessage.metadata.internal = true
+
+              device.receive(listMessage, connection)
+              device.receive(countMessage, connection)
+
+              break
+            case MESSAGEID_REQUEST_RW_OBJECTS:
+              throw new Error('It should have cancelled itself by now')
+              break
+            default:
+              break
+          }
+        }
+      })
+    }
+
+    new MessageQueueImmediate(device)
+    new MessageRouterTestCallback(device, underlyingDevice)
+
+    const connectionHandshake = new ConnectionHandshake({
+      device: device,
+      externalTiming: true,
+      requestListMessageID: MESSAGEID_REQUEST_RW_MESSAGEIDS,
+      requestObjectsMessageID: MESSAGEID_REQUEST_RW_OBJECTS,
+      listMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_LIST,
+      amountMessageID: MESSAGEID_INCOMING_RW_MESSAGEIDS_COUNT,
+    })
+
+    const progressSpy = sinon.spy()
+    const errorSpy = sinon.spy()
+    const completeSpy = sinon.spy()
+
+    let abc
+    let def
+
+    device.on('data', (message: Message) => {
+      switch (message.messageID) {
+        case 'abc':
+          abc = message.payload
+          break
+        case 'def':
+          def = message.payload
+          break
+        default:
+          break
+      }
+    })
+
+    const promise = new Promise((resolve, reject) => {
+      const subscription = connectionHandshake.observable.subscribe(
+        progressSpy,
+        errorSpy,
+        completeSpy,
+      )
+
+      unsubscribeHandler = () => subscription.unsubscribe()
+
+      setTimeout(resolve, 10)
+    })
+
+    await promise
+
+    assert.isFalse(completeSpy.called)
+    // it'll also throw if it does anything
+  })
 })
