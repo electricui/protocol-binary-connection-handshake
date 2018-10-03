@@ -1,4 +1,3 @@
-import { Observable, Observer } from 'rxjs'
 import { matchesState, Machine } from 'xstate'
 
 import { Device, DeviceHandshake, Message, Progress } from '@electricui/core'
@@ -492,7 +491,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     }
   }
 
-  cancel() {
+  onCancel() {
     this.detachHandlers()
   }
 }
