@@ -323,23 +323,6 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
   _interval: NodeJS.Timer | null = null
   _loopInterval: number = 50
 
-  // these will be immediately overwritten in the constructor
-  progress: (value: Progress) => void = () => {
-    throw new Error(
-      'The handshake must be subscribed to before events are received',
-    )
-  }
-  error: (err: Error) => void = () => {
-    throw new Error(
-      'The handshake must be subscribed to before events are received',
-    )
-  }
-  complete: () => void = () => {
-    throw new Error(
-      'The handshake must be subscribed to before events are received',
-    )
-  }
-
   constructor(options: ConnectionHandshakeOptions) {
     super(options.device)
     this.fullState = {
@@ -365,24 +348,10 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
 
     this.timeout = options.timeout || 1000
     this._externalTiming = options.externalTiming || false
-
-    this.onSubscribe = this.onSubscribe.bind(this)
-    this.observable = new Observable(this.onSubscribe)
-
-    this.progress = this.progress.bind(this)
-    this.error = this.error.bind(this)
-    this.complete = this.complete.bind(this)
-    this.cancel = this.cancel.bind(this)
   }
 
-  onSubscribe(observer: Observer<Progress>) {
-    this.progress = (progress: Progress) => observer.next(progress)
-    this.error = (err: Error) => observer.error(err)
-    this.complete = () => observer.complete()
-
+  onSubscribe() {
     this.connect()
-
-    return () => this.cancel()
   }
 
   getNow = () => {
