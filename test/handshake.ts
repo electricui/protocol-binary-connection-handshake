@@ -4,7 +4,6 @@ import * as chai from 'chai'
 import * as sinon from 'sinon'
 
 import {
-  Connection,
   ConnectionInterface,
   Device,
   DeviceManager,
@@ -29,13 +28,12 @@ describe('Connection Handshake', () => {
     const deviceManager = new DeviceManager()
     const device = new Device('mock', deviceManager)
     const connectionInterface = new ConnectionInterface()
-    const connection = new Connection({ connectionInterface })
 
     const underlyingDevice = async (message: Message) => {
       setImmediate(() => {
         if (message.metadata.query) {
           // if something gets queried,
-          device.receive(new Message(message.messageID, 0), connection)
+          device.receive(new Message(message.messageID, 0))
         } else if (message.metadata.type === TYPES.CALLBACK) {
           switch (message.messageID) {
             case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST:
@@ -51,16 +49,16 @@ describe('Connection Handshake', () => {
               )
               countMessage.metadata.internal = true
 
-              device.receive(listMessage, connection)
-              device.receive(countMessage, connection)
+              device.receive(listMessage)
+              device.receive(countMessage)
 
               break
             case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS:
               const abc = new Message('abc', 0)
-              device.receive(abc, connection)
+              device.receive(abc)
 
               const def = new Message('def', 0)
-              device.receive(def, connection)
+              device.receive(def)
               break
             default:
               break
@@ -116,7 +114,6 @@ describe('Connection Handshake', () => {
     const deviceManager = new DeviceManager()
     const device = new Device('mock', deviceManager)
     const connectionInterface = new ConnectionInterface()
-    const connection = new Connection({ connectionInterface })
 
     let listRequestNumber = 0
     let objectRequestNumber = 0
@@ -126,7 +123,7 @@ describe('Connection Handshake', () => {
       setImmediate(() => {
         if (message.metadata.query) {
           // if something gets queried,
-          device.receive(new Message(message.messageID, 0), connection)
+          device.receive(new Message(message.messageID, 0))
         } else if (message.metadata.type === TYPES.CALLBACK) {
           switch (message.messageID) {
             case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST:
@@ -148,8 +145,8 @@ describe('Connection Handshake', () => {
                   )
                   countMessage1.metadata.internal = true
 
-                  device.receive(listMessage1, connection)
-                  device.receive(countMessage1, connection)
+                  device.receive(listMessage1)
+                  device.receive(countMessage1)
                   break
 
                 default:
@@ -166,8 +163,8 @@ describe('Connection Handshake', () => {
                   )
                   countMessage2.metadata.internal = true
 
-                  device.receive(listMessage2, connection)
-                  device.receive(countMessage2, connection)
+                  device.receive(listMessage2)
+                  device.receive(countMessage2)
                   break
               }
 
@@ -181,15 +178,15 @@ describe('Connection Handshake', () => {
                 case 1:
                   // send half the messages first time
                   const abc1 = new Message('abc', 0)
-                  device.receive(abc1, connection)
+                  device.receive(abc1)
                   break
 
                 default:
                   // send all the third time
                   const abc2 = new Message('abc', 0)
-                  device.receive(abc2, connection)
+                  device.receive(abc2)
                   const def = new Message('def', 0)
-                  device.receive(def, connection)
+                  device.receive(def)
 
                   break
               }
@@ -260,7 +257,6 @@ describe('Connection Handshake', () => {
     const deviceManager = new DeviceManager()
     const device = new Device('mock', deviceManager)
     const connectionInterface = new ConnectionInterface()
-    const connection = new Connection({ connectionInterface })
 
     const underlyingDevice = async (message: Message) => {
       // do nothing
@@ -310,7 +306,6 @@ describe('Connection Handshake', () => {
     const deviceManager = new DeviceManager()
     const device = new Device('mock', deviceManager)
     const connectionInterface = new ConnectionInterface()
-    const connection = new Connection({ connectionInterface })
 
     let unsubscribeHandler = () => {
       console.error(
@@ -322,7 +317,7 @@ describe('Connection Handshake', () => {
       setImmediate(() => {
         if (message.metadata.query) {
           // if something gets queried,
-          device.receive(new Message(message.messageID, 0), connection)
+          device.receive(new Message(message.messageID, 0))
         } else if (message.metadata.type === TYPES.CALLBACK) {
           switch (message.messageID) {
             case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST:
@@ -341,8 +336,8 @@ describe('Connection Handshake', () => {
               )
               countMessage.metadata.internal = true
 
-              device.receive(listMessage, connection)
-              device.receive(countMessage, connection)
+              device.receive(listMessage)
+              device.receive(countMessage)
 
               break
             case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS:
