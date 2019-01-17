@@ -1,7 +1,7 @@
 import { matchesState, Machine } from 'xstate'
 
 import { Device, DeviceHandshake, Message, Progress } from '@electricui/core'
-import { TYPES } from '@electricui/protocol-binary-constants'
+import { MESSAGEIDS, TYPES } from '@electricui/protocol-binary-constants'
 
 const debug = require('debug')(
   'electricui-binary-connection-handshake:handshake',
@@ -303,10 +303,10 @@ interface ConnectionHandshakeOptions {
   device: Device
   timeout?: number
   externalTiming?: boolean
-  requestListMessageID: string
-  requestObjectsMessageID: string
-  listMessageID: string
-  amountMessageID: string
+  requestListMessageID?: string
+  requestObjectsMessageID?: string
+  listMessageID?: string
+  amountMessageID?: string
 }
 
 interface ResponseObject {
@@ -326,10 +326,16 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     super(options.device)
     this.fullState = {
       // extended state
-      requestListMessageID: options.requestListMessageID,
-      requestObjectsMessageID: options.requestObjectsMessageID,
-      amountMessageID: options.amountMessageID,
-      listMessageID: options.listMessageID,
+      requestListMessageID:
+        options.requestListMessageID ||
+        MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST,
+      requestObjectsMessageID:
+        options.requestObjectsMessageID ||
+        MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS,
+      amountMessageID:
+        options.amountMessageID || MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
+      listMessageID:
+        options.listMessageID || MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
       messageIDsReceived: [],
       messageIDObjects: new Map(),
       retries: 0,
