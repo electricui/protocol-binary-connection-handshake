@@ -73,11 +73,7 @@ describe('Connection Handshake', () => {
     const connectionHandshake = new BinaryConnectionHandshake({
       device: device,
       externalTiming: true,
-      requestListMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST,
-      requestObjectsMessageID:
-        MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS,
-      listMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
-      amountMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
+      preset: 'readwrite',
     })
 
     const progressSpy = sinon.spy()
@@ -206,11 +202,7 @@ describe('Connection Handshake', () => {
     const connectionHandshake = new BinaryConnectionHandshake({
       device: device,
       externalTiming: true,
-      requestListMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST,
-      requestObjectsMessageID:
-        MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS,
-      listMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
-      amountMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
+      preset: 'readwrite',
     })
 
     const progressSpy = sinon.spy()
@@ -268,11 +260,7 @@ describe('Connection Handshake', () => {
     const connectionHandshake = new BinaryConnectionHandshake({
       device: device,
       externalTiming: true,
-      requestListMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST,
-      requestObjectsMessageID:
-        MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS,
-      listMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
-      amountMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
+      preset: 'readwrite',
     })
 
     const progressSpy = sinon.spy()
@@ -356,11 +344,7 @@ describe('Connection Handshake', () => {
     const connectionHandshake = new BinaryConnectionHandshake({
       device: device,
       externalTiming: true,
-      requestListMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST,
-      requestObjectsMessageID:
-        MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS,
-      listMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
-      amountMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
+      preset: 'readwrite',
     })
 
     const progressSpy = sinon.spy()

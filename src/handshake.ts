@@ -303,10 +303,18 @@ interface ConnectionHandshakeOptions {
   device: Device
   timeout?: number
   externalTiming?: boolean
+  preset: 'custom' | 'readonly' | 'readwrite'
   requestListMessageID?: string
   requestObjectsMessageID?: string
   listMessageID?: string
   amountMessageID?: string
+}
+
+interface HandshakeMessageIDs {
+  requestListMessageID: string
+  requestObjectsMessageID: string
+  listMessageID: string
+  amountMessageID: string
 }
 
 interface ResponseObject {
@@ -324,18 +332,48 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
 
   constructor(options: ConnectionHandshakeOptions) {
     super(options.device)
+    let messageIDs: HandshakeMessageIDs
+
+    if (options.preset === 'custom') {
+      if (
+        !options.requestListMessageID ||
+        !options.requestObjectsMessageID ||
+        !options.amountMessageID ||
+        !options.listMessageID
+      ) {
+        throw new Error(
+          'Need to specify all messageIDs when not using a preset with a BinaryConnectionHandshake',
+        )
+      }
+
+      messageIDs = {
+        requestListMessageID: options.requestListMessageID,
+        requestObjectsMessageID: options.requestObjectsMessageID,
+        amountMessageID: options.amountMessageID,
+        listMessageID: options.listMessageID,
+      }
+    } else if (options.preset === 'readonly') {
+      messageIDs = {
+        requestListMessageID: MESSAGEIDS.READONLY_MESSAGEIDS_REQUEST_LIST,
+        requestObjectsMessageID:
+          MESSAGEIDS.READONLY_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS,
+        listMessageID: MESSAGEIDS.READONLY_MESSAGEIDS_ITEM,
+        amountMessageID: MESSAGEIDS.READONLY_MESSAGEIDS_COUNT,
+      }
+    } else {
+      messageIDs = {
+        requestListMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST,
+        requestObjectsMessageID:
+          MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS,
+        listMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
+        amountMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
+      }
+    }
+
     this.fullState = {
+      ...messageIDs,
       // extended state
-      requestListMessageID:
-        options.requestListMessageID ||
-        MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST,
-      requestObjectsMessageID:
-        options.requestObjectsMessageID ||
-        MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS,
-      amountMessageID:
-        options.amountMessageID || MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
-      listMessageID:
-        options.listMessageID || MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
+
       messageIDsReceived: [],
       messageIDObjects: new Map(),
       retries: 0,
