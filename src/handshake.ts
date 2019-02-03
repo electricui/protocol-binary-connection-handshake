@@ -451,12 +451,16 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
 
     debug('Handshake succeeded!')
 
+    // We don't need to send these since the device manager intrinsically receives messages from the device.
+    /*
     for (const [messageID, payload] of this.fullState.messageIDObjects) {
       const message = new Message(messageID, payload)
       message.metadata.internal = false
+      message.deviceID = this.device.getDeviceID() // Annotate the message with the DeviceID
 
       this.device.manager.receive(this.device, message)
     }
+    */
 
     this.complete()
   }
