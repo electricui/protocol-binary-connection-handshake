@@ -72,8 +72,9 @@ const actionMap: ActionMap = {
 
     for (const messageID of allMessageIDs) {
       if (fullState.messageIDObjects.get(messageID) === undefined) {
-        fullState.sendQuery(messageID)
-        return
+        fullState.sendQuery(messageID).catch(err => {
+          console.log("Couldn't request individual", messageID)
+        })
       }
     }
 
@@ -433,7 +434,9 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     callback.metadata.internal = true
     callback.metadata.query = false
 
-    return this.device.write(callback)
+    return this.device.write(callback).catch(err => {
+      console.warn("Couldn't send callback during handshake")
+    })
   }
 
   sendQuery = (messageID: string) => {
@@ -445,7 +448,9 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     callback.metadata.internal = false
     callback.metadata.query = true
 
-    return this.device.write(callback)
+    return this.device.write(callback).catch(err => {
+      console.warn("Couldn't send query during handshake")
+    })
   }
 
   onFinish = () => {
