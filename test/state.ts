@@ -38,6 +38,7 @@ const testFactory = () => {
     requestObjectsMessageID: 'd',
     listMessageID: 'b',
     amountMessageID: 'a',
+    preset: 'custom',
   })
 
   const progressSpy = sinon.spy()

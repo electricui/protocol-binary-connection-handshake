@@ -118,6 +118,7 @@ export const RECEIVED_OBJECT = 'RECEIVED_OBJECT'
 
 const stateMachine = Machine(
   {
+    id: 'binary-handshake',
     initial: 'request_ids',
     key: 'handshake',
     states: {
@@ -127,9 +128,8 @@ const stateMachine = Machine(
           request_amount: {
             on: {
               REQUEST: {
-                await_list: {
-                  actions: ['requestList'],
-                },
+                target: 'await_list',
+                actions: ['requestList'],
               },
               TIMEOUT: [
                 {
@@ -144,9 +144,8 @@ const stateMachine = Machine(
           await_list: {
             on: {
               RECEIVED: {
-                await_list: {
-                  actions: ['appendReceived'],
-                },
+                target: 'await_list',
+                actions: ['appendReceived'],
               },
               TIMEOUT: [
                 {
