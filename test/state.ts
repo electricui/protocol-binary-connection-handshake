@@ -25,11 +25,17 @@ import BinaryConnectionHandshake, {
 const assert = chai.assert
 
 const testFactory = () => {
-  const writeToDeviceCallback = sinon.spy()
+  const writeToDeviceSpy = sinon.spy()
   const deviceManager = new DeviceManager()
   const device = new Device('mock', deviceManager)
+
+  // create a message queue that binds to the device that returns immediately
   new MessageQueueImmediate(device)
-  new MessageRouterTestCallback(device, writeToDeviceCallback)
+
+  // async function because it returns a promise which is expected by the router
+  new MessageRouterTestCallback(device, async (message: Message) => {
+    writeToDeviceSpy(message)
+  })
 
   const connectionHandshake = new BinaryConnectionHandshake({
     device: device,
@@ -53,7 +59,7 @@ const testFactory = () => {
     progressSpy,
     errorSpy,
     completeSpy,
-    writeToDeviceCallback,
+    writeToDeviceSpy,
   }
 }
 
@@ -72,11 +78,7 @@ describe('Connection Handshake State Machine', () => {
   })
 
   it('retries when the incorrect amount is received', async () => {
-    const {
-      connectionHandshake,
-      completeSpy,
-      writeToDeviceCallback,
-    } = testFactory()
+    const { connectionHandshake, completeSpy, writeToDeviceSpy } = testFactory()
 
     connectionHandshake.dispatch({ type: REQUEST })
     connectionHandshake.dispatch({ type: RECEIVED, payload: ['abc', 'def'] })
@@ -85,10 +87,10 @@ describe('Connection Handshake State Machine', () => {
     connectionHandshake.dispatch({ type: TIMEOUT })
     connectionHandshake.dispatch({ type: RECEIVED, messageID: 'def', payload: 456, }) // prettier-ignore
 
-    assert.isTrue(writeToDeviceCallback.called)
+    assert.isTrue(writeToDeviceSpy.called)
 
     // it should be the third call
-    const queryMessage: Message = writeToDeviceCallback.getCall(2).args[0]
+    const queryMessage: Message = writeToDeviceSpy.getCall(2).args[0]
 
     assert.deepEqual(queryMessage.messageID, 'def')
     assert.isTrue(queryMessage.metadata.query)

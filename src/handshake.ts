@@ -303,7 +303,7 @@ interface ConnectionHandshakeOptions {
   device: Device
   timeout?: number
   externalTiming?: boolean
-  preset: 'custom' | 'readonly' | 'readwrite'
+  preset: 'custom' | 'default'
   requestListMessageID?: string
   requestObjectsMessageID?: string
   listMessageID?: string
@@ -351,14 +351,6 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
         requestObjectsMessageID: options.requestObjectsMessageID,
         amountMessageID: options.amountMessageID,
         listMessageID: options.listMessageID,
-      }
-    } else if (options.preset === 'readonly') {
-      messageIDs = {
-        requestListMessageID: MESSAGEIDS.READONLY_MESSAGEIDS_REQUEST_LIST,
-        requestObjectsMessageID:
-          MESSAGEIDS.READONLY_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS,
-        listMessageID: MESSAGEIDS.READONLY_MESSAGEIDS_ITEM,
-        amountMessageID: MESSAGEIDS.READONLY_MESSAGEIDS_COUNT,
       }
     } else {
       messageIDs = {
@@ -433,7 +425,11 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     callback.metadata.internal = true
     callback.metadata.query = false
 
-    return this.device.write(callback).catch(err => {
+    const reply = this.device.write(callback)
+
+    console.log('reply', reply)
+
+    return reply.catch(err => {
       console.warn("Couldn't send callback during handshake")
     })
   }

@@ -73,7 +73,7 @@ describe('Connection Handshake', () => {
     const connectionHandshake = new BinaryConnectionHandshake({
       device: device,
       externalTiming: true,
-      preset: 'readwrite',
+      preset: 'default',
     })
 
     const progressSpy = sinon.spy()
@@ -114,7 +114,8 @@ describe('Connection Handshake', () => {
     let listRequestNumber = 0
     let objectRequestNumber = 0
 
-    // this is a mock device
+    // this is a mock device, it is async because it returns a promise
+    // which is expected by the router
     const underlyingDevice = async (message: Message) => {
       setImmediate(() => {
         if (message.metadata.query) {
@@ -202,7 +203,7 @@ describe('Connection Handshake', () => {
     const connectionHandshake = new BinaryConnectionHandshake({
       device: device,
       externalTiming: true,
-      preset: 'readwrite',
+      preset: 'default',
     })
 
     const progressSpy = sinon.spy()
@@ -260,7 +261,7 @@ describe('Connection Handshake', () => {
     const connectionHandshake = new BinaryConnectionHandshake({
       device: device,
       externalTiming: true,
-      preset: 'readwrite',
+      preset: 'default',
     })
 
     const progressSpy = sinon.spy()
@@ -344,7 +345,7 @@ describe('Connection Handshake', () => {
     const connectionHandshake = new BinaryConnectionHandshake({
       device: device,
       externalTiming: true,
-      preset: 'readwrite',
+      preset: 'default',
     })
 
     const progressSpy = sinon.spy()
