@@ -453,6 +453,14 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
 
     debug('Handshake succeeded!')
 
+    this.progress(
+      new Progress(
+        this.fullState.messageIDsReceived.length,
+        this.fullState.numberOfMessageIDs,
+        `Finished`,
+      ),
+    )
+
     // We don't need to send these since the device manager intrinsically receives messages from the device.
     /*
     for (const [messageID, payload] of this.fullState.messageIDObjects) {
@@ -495,11 +503,27 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
       }
     }
 
+    // it's a developer packet
+
     if (
       matchesState(this.currentState.value, 'request_objects.await_objects')
     ) {
       this.dispatch({ type: RECEIVED, messageID, payload })
+
       this._lastReceived = this.getNow()
+
+      // Update progress
+      const amountReceivedCorrectly = Array.from(
+        this.fullState.messageIDObjects.values(),
+      ).filter(val => val !== undefined).length
+
+      this.progress(
+        new Progress(
+          amountReceivedCorrectly,
+          this.fullState.numberOfMessageIDs,
+          `Received ${messageID}`,
+        ),
+      )
     }
   }
 
@@ -529,7 +553,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     // send initial request
     this.dispatch({ type: REQUEST })
 
-    this.progress(new Progress(0, 0, 'Requesting '))
+    this.progress(new Progress(0, 0, 'Requesting full state'))
   }
 
   loop = (now: number) => {
@@ -543,5 +567,9 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
 
   onCancel() {
     this.detachHandlers()
+  }
+
+  getIdentifier() {
+    return 'electricui-binary-protocol-handshake'
   }
 }
