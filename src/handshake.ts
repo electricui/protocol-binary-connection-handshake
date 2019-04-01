@@ -427,8 +427,6 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
 
     const reply = this.device.write(callback)
 
-    console.log('reply', reply)
-
     return reply.catch(err => {
       console.warn("Couldn't send callback during handshake")
     })
