@@ -453,8 +453,8 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
 
     this.progress(
       new Progress(
-        this.fullState.messageIDsReceived.length,
-        this.fullState.numberOfMessageIDs,
+        this.fullState.messageIDsReceived.length + 2,
+        this.fullState.numberOfMessageIDs + 2,
         `Finished`,
       ),
     )
@@ -494,8 +494,24 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
           this.fullState.numberOfMessageIDs = payload
           this.dispatch({ type: RECEIVED_COUNT, payload })
           this._lastReceived = this.getNow()
-          return
 
+          console.log(
+            messageID,
+            'this.fullState.amountMessageID',
+            this.fullState.numberOfMessageIDs,
+            this.fullState.numberOfMessageIDs + 2,
+          )
+
+          // Indicate that we've received something
+          this.progress(
+            new Progress(
+              1,
+              this.fullState.numberOfMessageIDs + 2,
+              `Received messageIDs`,
+            ),
+          )
+
+          return
         default:
           return
       }
@@ -517,8 +533,8 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
 
       this.progress(
         new Progress(
-          amountReceivedCorrectly,
-          this.fullState.numberOfMessageIDs,
+          amountReceivedCorrectly + 2,
+          this.fullState.numberOfMessageIDs + 2,
           `Received ${messageID}`,
         ),
       )
