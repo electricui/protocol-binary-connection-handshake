@@ -495,13 +495,6 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
           this.dispatch({ type: RECEIVED_COUNT, payload })
           this._lastReceived = this.getNow()
 
-          console.log(
-            messageID,
-            'this.fullState.amountMessageID',
-            this.fullState.numberOfMessageIDs,
-            this.fullState.numberOfMessageIDs + 2,
-          )
-
           // Indicate that we've received something
           this.progress(
             new Progress(
