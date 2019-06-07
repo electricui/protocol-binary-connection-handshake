@@ -109,7 +109,7 @@ const actionMap: ActionMap = {
   },
 }
 
-// transitions
+// Transitions
 export const REQUEST = 'REQUEST'
 export const RECEIVED = 'RECEIVED'
 export const TIMEOUT = 'TIMEOUT'
