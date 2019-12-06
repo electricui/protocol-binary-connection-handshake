@@ -419,8 +419,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
   sendCallback = (messageID: string) => {
     debug('Sent Callback', messageID)
 
-    // Send a Buffer.alloc(0) instead of a null as a micro-optimisation + please the type codecs
-    const callback = new Message(messageID, Buffer.alloc(0))
+    const callback = new Message(messageID, null)
     callback.metadata.type = TYPES.CALLBACK
     callback.metadata.internal = true
     callback.metadata.query = false
@@ -435,8 +434,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
   sendQuery = (messageID: string) => {
     debug('Sent Query', messageID)
 
-    // Send a Buffer.alloc(0) instead of a null as a micro-optimisation + please the type codecs
-    const callback = new Message(messageID, Buffer.alloc(0))
+    const callback = new Message(messageID, null)
     callback.metadata.type = TYPES.CALLBACK
     callback.metadata.internal = false
     callback.metadata.query = true
