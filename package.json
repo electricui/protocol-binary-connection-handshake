@@ -1,6 +1,6 @@
 {
   "name": "@electricui/protocol-binary-connection-handshake",
-  "version": "0.6.9-prerelease.0",
+  "version": "0.6.9",
   "description": "ElectricUI Binary Protocol Connection Handshake Manager",
   "electricui-dev": true,
   "author": "Electric UI <support@electricui.com> (https://electricui.com)",
