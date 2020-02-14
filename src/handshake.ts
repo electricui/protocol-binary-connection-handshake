@@ -4,7 +4,7 @@ import { Device, DeviceHandshake, Message, Progress } from '@electricui/core'
 import { MESSAGEIDS, TYPES } from '@electricui/protocol-binary-constants'
 
 const debug = require('debug')(
-  'electricui-binary-connection-handshake:handshake',
+  'electricui-protocol-binary:connection-handshake',
 )
 
 interface Event {
