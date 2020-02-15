@@ -2,6 +2,7 @@ import { matchesState, Machine } from 'xstate'
 
 import { Device, DeviceHandshake, Message, Progress } from '@electricui/core'
 import { MESSAGEIDS, TYPES } from '@electricui/protocol-binary-constants'
+import { mark, measure } from './perf'
 
 const debug = require('debug')(
   'electricui-protocol-binary:connection-handshake',
@@ -29,6 +30,7 @@ const actionMap: ActionMap = {
     event: Event,
     dispatch: Dispatch,
   ) => {
+    mark(`binary-handshake:request-list`)
     return fullState.sendCallback(fullState.requestListMessageID)
   },
   requestObjects: (
@@ -36,6 +38,7 @@ const actionMap: ActionMap = {
     event: Event,
     dispatch: Dispatch,
   ) => {
+    mark(`binary-handshake:request-objects`)
     return fullState.sendCallback(fullState.requestObjectsMessageID)
   },
   appendReceived: (
@@ -445,6 +448,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
   }
 
   onFinish = () => {
+    measure(`binary-handshake:request-objects`)
     this.detachHandlers()
 
     debug('Handshake succeeded!')
@@ -485,6 +489,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     if (internal) {
       switch (messageID) {
         case this.fullState.listMessageID:
+          measure(`binary-handshake:request-list`)
           this.dispatch({ type: RECEIVED, payload })
           this._lastReceived = this.getNow()
           return
@@ -533,6 +538,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
   }
 
   attachHandlers = () => {
+    mark(`binary-handshake`)
     debug(`Attaching handlers`)
     this.device.on('data', this.receiveHandler)
     if (!this._externalTiming) {
@@ -543,6 +549,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
   }
 
   detachHandlers = () => {
+    measure(`binary-handshake`)
     debug(`Detaching handlers`)
     this.device.removeListener('data', this.receiveHandler)
     if (this._interval) {
