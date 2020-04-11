@@ -73,15 +73,24 @@ const actionMap: ActionMap = {
   ) => {
     const allMessageIDs = fullState.messageIDsReceived
 
+    let found = false
+
     for (const messageID of allMessageIDs) {
       if (fullState.messageIDObjects.get(messageID) === undefined) {
         fullState.sendQuery(messageID).catch(err => {
           console.log("Couldn't request individual", messageID)
         })
+        found = true
       }
     }
 
-    console.error("Couldn't find any messageIDs to query?")
+    if (!found) {
+      throw new Error(
+        `All ${
+          allMessageIDs.length
+        } messageIDs had data, why requesting individual?`,
+      )
+    }
   },
   incrementRetries: (
     fullState: FullStateShape,

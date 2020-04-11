@@ -1,6 +1,3 @@
-import 'mocha'
-
-import * as chai from 'chai'
 import * as sinon from 'sinon'
 
 import {
@@ -15,8 +12,6 @@ import { MESSAGEIDS, TYPES } from '@electricui/protocol-binary-constants'
 
 import BinaryConnectionHandshake from '../src/handshake'
 
-const assert = chai.assert
-
 const delay = (delay: number) => {
   return new Promise((res, rej) => {
     setTimeout(res, delay)
@@ -24,10 +19,9 @@ const delay = (delay: number) => {
 }
 
 describe('Connection Handshake', () => {
-  it('performes a handshake through the happy path', async () => {
+  test('performes a handshake through the happy path', async () => {
     const deviceManager = new DeviceManager()
     const device = new Device('mock', deviceManager)
-    const connectionInterface = new ConnectionInterface()
 
     const underlyingDevice = async (message: Message) => {
       setImmediate(() => {
@@ -78,7 +72,6 @@ describe('Connection Handshake', () => {
 
     const progressSpy = sinon.spy()
     const errorSpy = sinon.spy()
-    const completeSpy = sinon.spy()
 
     let abc
     let def
@@ -102,14 +95,97 @@ describe('Connection Handshake', () => {
 
     await promise
 
-    assert.strictEqual(abc, 0)
-    assert.strictEqual(def, 0)
+    expect(abc).toBe(0)
+    expect(def).toBe(0)
   })
 
-  it('performes a handshake with list retries and object retries', async () => {
+  test("doesn't care if heartbeat messages are sent during the handshake", async () => {
     const deviceManager = new DeviceManager()
     const device = new Device('mock', deviceManager)
-    const connectionInterface = new ConnectionInterface()
+
+    const underlyingDevice = async (message: Message) => {
+      setImmediate(() => {
+        if (message.metadata.query) {
+          // if something gets queried,
+          device.receive(new Message(message.messageID, 0))
+        } else if (message.metadata.type === TYPES.CALLBACK) {
+          switch (message.messageID) {
+            case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST:
+              const heartbeatMessage = new Message(MESSAGEIDS.HEARTBEAT, 32)
+              heartbeatMessage.metadata.internal = true
+
+              const listMessage = new Message(
+                MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
+                ['abc', 'def'],
+              )
+              listMessage.metadata.internal = true
+
+              const countMessage = new Message(
+                MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
+                2,
+              )
+              countMessage.metadata.internal = true
+
+              device.receive(heartbeatMessage)
+              device.receive(listMessage)
+              device.receive(countMessage)
+
+              break
+            case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS:
+              const abc = new Message('abc', 0)
+              device.receive(abc)
+
+              const def = new Message('def', 0)
+              device.receive(def)
+              break
+            default:
+              break
+          }
+        }
+      })
+    }
+
+    new MessageQueueImmediate(device)
+    new MessageRouterTestCallback(device, underlyingDevice)
+
+    const connectionHandshake = new BinaryConnectionHandshake({
+      device: device,
+      externalTiming: true,
+      preset: 'default',
+    })
+
+    const progressSpy = sinon.spy()
+    const errorSpy = sinon.spy()
+
+    let abc
+    let def
+
+    device.on('data', (message: Message) => {
+      switch (message.messageID) {
+        case 'abc':
+          abc = message.payload
+          break
+        case 'def':
+          def = message.payload
+          break
+        default:
+          break
+      }
+    })
+
+    const promise = new Promise((resolve, reject) => {
+      connectionHandshake.observable.subscribe(progressSpy, errorSpy, resolve)
+    })
+
+    await promise
+
+    expect(abc).toBe(0)
+    expect(def).toBe(0)
+  })
+
+  test('performes a handshake with list retries and object retries', async () => {
+    const deviceManager = new DeviceManager()
+    const device = new Device('mock', deviceManager)
 
     let listRequestNumber = 0
     let objectRequestNumber = 0
@@ -242,14 +318,13 @@ describe('Connection Handshake', () => {
 
     await promise
 
-    assert.strictEqual(abc, 0)
-    assert.strictEqual(def, 0)
+    expect(abc).toBe(0)
+    expect(def).toBe(0)
   })
 
-  it('times out', async () => {
+  test('times out', async () => {
     const deviceManager = new DeviceManager()
     const device = new Device('mock', deviceManager)
-    const connectionInterface = new ConnectionInterface()
 
     const underlyingDevice = async (message: Message) => {
       // do nothing
@@ -288,13 +363,12 @@ describe('Connection Handshake', () => {
 
     const err = await promise
 
-    assert.exists(err)
-    assert.instanceOf(err, Error)
+    expect(err).toBeInstanceOf(Error)
   })
-  it('cancels everything when told to', async () => {
+
+  test('cancels everything when told to', async () => {
     const deviceManager = new DeviceManager()
     const device = new Device('mock', deviceManager)
-    const connectionInterface = new ConnectionInterface()
 
     let unsubscribeHandler = () => {
       console.error(
@@ -331,7 +405,6 @@ describe('Connection Handshake', () => {
               break
             case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS:
               throw new Error('It should have cancelled itself by now')
-              break
             default:
               break
           }
@@ -382,7 +455,7 @@ describe('Connection Handshake', () => {
 
     await promise
 
-    assert.isFalse(completeSpy.called)
+    expect(completeSpy.called).toBe(false)
     // it'll also throw if it does anything
   })
 })

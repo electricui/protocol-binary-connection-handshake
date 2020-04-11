@@ -1,10 +1,12 @@
-import 'mocha'
-
-import { delay } from 'bluebird'
 import * as chai from 'chai'
-import { Observable, Observer } from 'rxjs'
 import * as sinon from 'sinon'
 
+import BinaryConnectionHandshake, {
+  RECEIVED,
+  RECEIVED_COUNT,
+  REQUEST,
+  TIMEOUT,
+} from '../src/handshake'
 import {
   Device,
   DeviceManager,
@@ -13,14 +15,10 @@ import {
   MessageRouterTestCallback,
   Progress,
 } from '@electricui/core'
-import { TYPES } from '@electricui/protocol-binary-constants'
+import { Observable, Observer } from 'rxjs'
 
-import BinaryConnectionHandshake, {
-  RECEIVED,
-  RECEIVED_COUNT,
-  REQUEST,
-  TIMEOUT,
-} from '../src/handshake'
+import { TYPES } from '@electricui/protocol-binary-constants'
+import { delay } from 'bluebird'
 
 const assert = chai.assert
 
@@ -64,7 +62,7 @@ const testFactory = () => {
 }
 
 describe('Connection Handshake State Machine', () => {
-  it('finishes when the correct amount is received', () => {
+  test('finishes when the correct amount is received', () => {
     const { connectionHandshake, completeSpy } = testFactory()
 
     connectionHandshake.dispatch({ type: REQUEST })
@@ -73,11 +71,11 @@ describe('Connection Handshake State Machine', () => {
     connectionHandshake.dispatch({ type: RECEIVED, messageID: 'abc', payload: 123, }) // prettier-ignore
     connectionHandshake.dispatch({ type: RECEIVED, messageID: 'def', payload: 456, }) // prettier-ignore
 
-    assert.strictEqual(connectionHandshake.currentState.value, 'finish')
-    assert.isTrue(completeSpy.called)
+    expect(connectionHandshake.currentState.value).toBe('finish')
+    expect(completeSpy.called).toBe(true)
   })
 
-  it('retries when the incorrect amount is received', async () => {
+  test('retries when the incorrect amount is received', async () => {
     const { connectionHandshake, completeSpy, writeToDeviceSpy } = testFactory()
 
     connectionHandshake.dispatch({ type: REQUEST })
@@ -87,19 +85,19 @@ describe('Connection Handshake State Machine', () => {
     connectionHandshake.dispatch({ type: TIMEOUT })
     connectionHandshake.dispatch({ type: RECEIVED, messageID: 'def', payload: 456, }) // prettier-ignore
 
-    assert.isTrue(writeToDeviceSpy.called)
+    expect(writeToDeviceSpy.called).toBe(true)
 
     // it should be the third call
     const queryMessage: Message = writeToDeviceSpy.getCall(2).args[0]
 
-    assert.deepEqual(queryMessage.messageID, 'def')
-    assert.isTrue(queryMessage.metadata.query)
+    expect(queryMessage.messageID).toEqual('def')
+    expect(queryMessage.metadata.query).toBe(true)
 
-    assert.strictEqual(connectionHandshake.currentState.value, 'finish')
-    assert.isTrue(completeSpy.called)
+    expect(connectionHandshake.currentState.value).toBe('finish')
+    expect(completeSpy.called).toBe(true)
   })
 
-  it('retries a fixed amount of times when missing members of the message ID list', () => {
+  test('retries a fixed amount of times when missing members of the message ID list', () => {
     const { connectionHandshake, errorSpy } = testFactory()
 
     connectionHandshake.dispatch({ type: REQUEST })
@@ -113,11 +111,11 @@ describe('Connection Handshake State Machine', () => {
     connectionHandshake.dispatch({ type: RECEIVED, payload: ['abc', 'def'] })
     connectionHandshake.dispatch({ type: RECEIVED_COUNT, payload: 4 })
 
-    assert.strictEqual(connectionHandshake.currentState.value, 'fail')
-    assert.isTrue(errorSpy.called)
+    expect(connectionHandshake.currentState.value).toBe('fail')
+    expect(errorSpy.called).toBe(true)
   })
 
-  it('succeeds when only getting partial data per retry', () => {
+  test('succeeds when only getting partial data per retry', () => {
     const { connectionHandshake, completeSpy } = testFactory()
 
     connectionHandshake.dispatch({ type: REQUEST })
@@ -136,7 +134,7 @@ describe('Connection Handshake State Machine', () => {
     connectionHandshake.dispatch({ type: RECEIVED, messageID: 'ghi', payload: 456, }) // prettier-ignore
     connectionHandshake.dispatch({ type: RECEIVED, messageID: 'jki', payload: 456, }) // prettier-ignore
 
-    assert.strictEqual(connectionHandshake.currentState.value, 'finish')
-    assert.isTrue(completeSpy.called)
+    expect(connectionHandshake.currentState.value).toBe('finish')
+    expect(completeSpy.called).toBe(true)
   })
 })
