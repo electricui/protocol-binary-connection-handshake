@@ -1,6 +1,12 @@
 import { matchesState, Machine } from 'xstate'
 
-import { Device, DeviceHandshake, Message, Progress } from '@electricui/core'
+import {
+  Device,
+  DeviceHandshake,
+  Message,
+  Progress,
+  DEVICE_EVENTS,
+} from '@electricui/core'
 import { MESSAGEIDS, TYPES } from '@electricui/protocol-binary-constants'
 import { mark, measure } from './perf'
 
@@ -14,6 +20,10 @@ interface Event {
   messageID?: string
 }
 
+interface MessageEvent extends Event {
+  messageID: string
+}
+
 type Dispatch = (event: Event) => void
 
 interface ActionMap {
@@ -24,6 +34,16 @@ interface ActionMap {
   ) => void
 }
 
+export const enum PROGRESS_KEYS {
+  FINISHED = 'finished',
+  RECEIVED_AMOUNT_OF_MESSAGEIDS = 'received-amount-of-messageids',
+  RECEIVED_MESSAGEID = 'received-messageid',
+  REQUEST_LIST = 'request-list',
+  REQUEST_OBJECTS = 'request-objects',
+  REQUEST_INDIVIDUAL = 'request-individual',
+  FAILED = 'failed',
+}
+
 const actionMap: ActionMap = {
   requestList: (
     fullState: FullStateShape,
@@ -31,6 +51,11 @@ const actionMap: ActionMap = {
     dispatch: Dispatch,
   ) => {
     mark(`binary-handshake:request-list`)
+
+    fullState.updateProgress(PROGRESS_KEYS.REQUEST_LIST, {
+      retries: fullState.retries,
+    })
+
     return fullState.sendCallback(fullState.requestListMessageID)
   },
   requestObjects: (
@@ -39,6 +64,11 @@ const actionMap: ActionMap = {
     dispatch: Dispatch,
   ) => {
     mark(`binary-handshake:request-objects`)
+
+    fullState.updateProgress(PROGRESS_KEYS.REQUEST_OBJECTS, {
+      retries: fullState.retries,
+    })
+
     return fullState.sendCallback(fullState.requestObjectsMessageID)
   },
   appendReceived: (
@@ -73,24 +103,50 @@ const actionMap: ActionMap = {
   ) => {
     const allMessageIDs = fullState.messageIDsReceived
 
-    let found = false
-
     for (const messageID of allMessageIDs) {
       if (fullState.messageIDObjects.get(messageID) === undefined) {
         fullState.sendQuery(messageID).catch(err => {
           console.log("Couldn't request individual", messageID)
         })
-        found = true
+
+        fullState.updateProgress(PROGRESS_KEYS.REQUEST_INDIVIDUAL, {
+          messageID,
+          retries: fullState.retries,
+        })
+
+        return
       }
     }
 
-    if (!found) {
-      throw new Error(
-        `All ${
-          allMessageIDs.length
-        } messageIDs had data, why requesting individual?`,
+    throw new Error(
+      `All ${
+        allMessageIDs.length
+      } messageIDs had data, why requesting individual?`,
+    )
+  },
+  addObject: (
+    fullState: FullStateShape,
+    event: MessageEvent,
+    dispatch: Dispatch,
+  ) => {
+    if (fullState.messageIDObjects.get(event.messageID) !== undefined) {
+      debug(
+        `received ${
+          event.messageID
+        } again, payload was ${fullState.messageIDObjects.get(
+          event.messageID,
+        )}, and is now ${event.payload}`,
       )
     }
+
+    if (event.payload === undefined) {
+      console.log(
+        `Event payload for ${event.messageID} was undefined, setting to null`,
+      )
+      event.payload = null
+    }
+
+    fullState.messageIDObjects.set(event.messageID, event.payload)
   },
   incrementRetries: (
     fullState: FullStateShape,
@@ -105,13 +161,6 @@ const actionMap: ActionMap = {
     dispatch: Dispatch,
   ) => {
     fullState.retries = 0
-  },
-  setIndividualRequestMode: (
-    fullState: FullStateShape,
-    event: Event,
-    dispatch: Dispatch,
-  ) => {
-    fullState.individualRequestMode = true
   },
   onFinish: (fullState: FullStateShape, event: Event, dispatch: Dispatch) => {
     fullState.onFinish()
@@ -147,7 +196,7 @@ const stateMachine = Machine(
                 {
                   target: 'request_amount',
                   cond: 'belowMaxRetries',
-                  actions: ['requestList', 'incrementRetries'],
+                  actions: ['incrementRetries', 'requestList'],
                 },
                 { target: '#handshake.fail' },
               ],
@@ -155,6 +204,18 @@ const stateMachine = Machine(
           },
           await_list: {
             on: {
+              RECEIVED_COUNT: [
+                {
+                  target: '#handshake.request_objects_bulk',
+                  cond: 'correctAmountOfMessageIDsRecevied',
+                },
+                {
+                  target: 'await_list',
+                  cond: 'belowMaxRetries',
+                  actions: ['incrementRetries', 'requestList'],
+                },
+                { target: '#handshake.fail' },
+              ],
               RECEIVED: {
                 target: 'await_list',
                 actions: ['appendReceived'],
@@ -163,19 +224,7 @@ const stateMachine = Machine(
                 {
                   target: 'await_list',
                   cond: 'belowMaxRetries',
-                  actions: ['requestList', 'incrementRetries'],
-                },
-                { target: '#handshake.fail' },
-              ],
-              RECEIVED_COUNT: [
-                {
-                  target: '#handshake.request_objects',
-                  cond: 'correctAmountOfMessageIDsRecevied',
-                },
-                {
-                  target: 'await_list',
-                  cond: 'belowMaxRetries',
-                  actions: ['requestList', 'incrementRetries'],
+                  actions: ['incrementRetries', 'requestList'],
                 },
                 { target: '#handshake.fail' },
               ],
@@ -183,7 +232,7 @@ const stateMachine = Machine(
           },
         },
       },
-      request_objects: {
+      request_objects_bulk: {
         initial: 'await_objects',
         onEntry: ['populateHashmap', 'resetRetries', 'requestObjects'],
         states: {
@@ -191,16 +240,13 @@ const stateMachine = Machine(
             on: {
               RECEIVED: [
                 {
+                  cond: 'allReceivedWhenThisAdded',
+                  actions: ['addObject'],
                   target: '#handshake.finish',
-                  cond: 'addObjectCheckIfAllReceived',
                 },
                 {
                   target: 'await_objects',
-                  cond: 'isInIndividualRequestMode',
-                  actions: ['requestIndividual'],
-                },
-                {
-                  target: 'await_objects',
+                  actions: ['addObject'],
                 },
               ],
               TIMEOUT: [
@@ -210,13 +256,37 @@ const stateMachine = Machine(
                   actions: ['requestObjects', 'incrementRetries'],
                 },
                 {
-                  target: 'await_objects',
+                  target: '#handshake.request_objects_individually',
                   cond: 'belowMaxRetries',
-                  actions: [
-                    'setIndividualRequestMode',
-                    'requestIndividual',
-                    'incrementRetries',
-                  ],
+                },
+              ],
+            },
+          },
+        },
+      },
+      request_objects_individually: {
+        initial: 'await_object',
+        onEntry: ['resetRetries', 'requestIndividual'],
+        states: {
+          await_object: {
+            on: {
+              RECEIVED: [
+                {
+                  cond: 'allReceivedWhenThisAdded',
+                  actions: ['addObject'],
+                  target: '#handshake.finish',
+                },
+                {
+                  cond: 'individualsLeftToRequest',
+                  actions: ['addObject', 'requestIndividual'],
+                  target: 'await_object',
+                },
+              ],
+              TIMEOUT: [
+                {
+                  target: 'await_object',
+                  cond: 'belowMaxRetries',
+                  actions: ['requestIndividual', 'incrementRetries'],
                 },
                 { target: '#handshake.fail' },
               ],
@@ -267,25 +337,37 @@ const stateMachine = Machine(
 
         return true
       },
-      addObjectCheckIfAllReceived: (fullState: FullStateShape, event) => {
-        // add the object
-        fullState.messageIDObjects.set(event.messageID, event.payload)
-
+      allReceivedWhenThisAdded: (
+        fullState: FullStateShape,
+        event: MessageEvent,
+      ) => {
         // and check if we're done
         const allMessageIDs = fullState.messageIDsReceived
 
         for (const messageID of allMessageIDs) {
           const value = fullState.messageIDObjects.get(messageID)
 
-          if (value === undefined) {
+          // Check if this messageID is empty, doing a special case check for
+          // the message we're in the middle of receiving
+          if (value === undefined && messageID !== event.messageID) {
             return false
           }
         }
 
         return true
       },
-      isInIndividualRequestMode: (fullState: FullStateShape, event) => {
-        return fullState.individualRequestMode
+      individualsLeftToRequest: (fullState: FullStateShape, event) => {
+        const allMessageIDs = fullState.messageIDsReceived
+
+        for (const messageID of allMessageIDs) {
+          const value = fullState.messageIDObjects.get(messageID)
+
+          if (value === undefined) {
+            return true
+          }
+        }
+
+        return false
       },
     },
   },
@@ -300,12 +382,12 @@ interface FullStateShape {
   messageIDObjects: Map<string, any>
   retries: number
   maxRetries: number
-  individualRequestMode: boolean
 
   numberOfMessageIDs: number
 
   sendCallback: (messageID: string) => Promise<void>
   sendQuery: (messageID: string) => Promise<void>
+  updateProgress: (progressKey: PROGRESS_KEYS, meta?: ProgressMeta) => void
 
   onFinish: () => void
   onFail: () => void
@@ -314,12 +396,15 @@ interface FullStateShape {
 interface ConnectionHandshakeOptions {
   device: Device
   timeout?: number
-  externalTiming?: boolean
   preset: 'custom' | 'default'
   requestListMessageID?: string
   requestObjectsMessageID?: string
   listMessageID?: string
   amountMessageID?: string
+  /**
+   * Each progress message can be customised with either a string or a function that receives the retry number
+   */
+  progressMessages?: {}
 }
 
 interface HandshakeMessageIDs {
@@ -333,11 +418,15 @@ interface ResponseObject {
   [key: string]: any
 }
 
+interface ProgressMeta {
+  messageID?: string
+  retries?: number
+}
+
 export default class BinaryConnectionHandshake extends DeviceHandshake {
   currentState = stateMachine.initialState // starts as request_amount
   fullState: FullStateShape
   _lastReceived: number = 0
-  _externalTiming: boolean
   timeout: number
   _interval: NodeJS.Timer | null = null
   _loopInterval: number = 50
@@ -382,19 +471,18 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
       messageIDObjects: new Map(),
       retries: 0,
       maxRetries: 2,
-      individualRequestMode: false,
 
       numberOfMessageIDs: 0,
 
       sendCallback: this.sendCallback,
       sendQuery: this.sendQuery,
+      updateProgress: this.updateProgress,
 
       onFinish: this.onFinish,
       onFail: this.onFail,
     }
 
     this.timeout = options.timeout || 1000
-    this._externalTiming = options.externalTiming || false
   }
 
   onSubscribe() {
@@ -406,25 +494,26 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
   }
 
   dispatch = (event: Event) => {
+    // Calculate the next state
     const nextState = stateMachine.transition(
       this.currentState,
       event,
       this.fullState,
     )
 
+    // Action before transition
     nextState.actions.forEach(actionKey => {
       const action = actionMap[String(actionKey)]
 
       if (action) {
         // run the action, they can directly mutate state if they want.
-
         action(this.fullState, event, this.dispatch)
       }
     })
 
     debug('DISPATCH', this.currentState.value, event, nextState.value)
 
-    // update the current state
+    // Commit the transition to the next state
     this.currentState = nextState
   }
 
@@ -462,24 +551,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
 
     debug('Handshake succeeded!')
 
-    this.progress(
-      new Progress(
-        this.fullState.messageIDsReceived.length + 2,
-        this.fullState.numberOfMessageIDs + 2,
-        `Finished`,
-      ),
-    )
-
-    // We don't need to send these since the device manager intrinsically receives messages from the device.
-    /*
-    for (const [messageID, payload] of this.fullState.messageIDObjects) {
-      const message = new Message(messageID, payload)
-      message.metadata.internal = false
-      message.deviceID = this.device.getDeviceID() // Annotate the message with the DeviceID
-
-      this.device.manager.receive(this.device, message)
-    }
-    */
+    this.updateProgress(PROGRESS_KEYS.FINISHED)
 
     this.complete()
   }
@@ -487,6 +559,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
   onFail = () => {
     this.detachHandlers()
     debug('Failed handshake...')
+    this.updateProgress(PROGRESS_KEYS.FAILED)
     this.error(new Error('Maximum retries hit.'))
   }
 
@@ -508,13 +581,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
           this._lastReceived = this.getNow()
 
           // Indicate that we've received something
-          this.progress(
-            new Progress(
-              1,
-              this.fullState.numberOfMessageIDs + 2,
-              `Received messageIDs`,
-            ),
-          )
+          this.updateProgress(PROGRESS_KEYS.RECEIVED_AMOUNT_OF_MESSAGEIDS)
 
           return
         default:
@@ -523,44 +590,62 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     }
 
     // it's a developer packet
-
     if (
-      matchesState(this.currentState.value, 'request_objects.await_objects')
+      matchesState(
+        this.currentState.value,
+        'request_objects_bulk.await_objects',
+      ) ||
+      matchesState(
+        this.currentState.value,
+        'request_objects_individually.await_objects',
+      )
     ) {
       this.dispatch({ type: RECEIVED, messageID, payload })
 
       this._lastReceived = this.getNow()
 
-      // Update progress
-      const amountReceivedCorrectly = Array.from(
-        this.fullState.messageIDObjects.values(),
-      ).filter(val => val !== undefined).length
+      this.updateProgress(PROGRESS_KEYS.RECEIVED_MESSAGEID, {
+        messageID,
+      })
+    }
+  }
 
-      this.progress(
-        new Progress(
-          amountReceivedCorrectly + 2,
-          this.fullState.numberOfMessageIDs + 2,
-          `Received ${messageID}`,
-        ),
-      )
+  updateProgress = (progressKey: PROGRESS_KEYS, meta: ProgressMeta = {}) => {
+    let progress = Array.from(this.fullState.messageIDObjects.values()).filter(
+      val => val !== undefined,
+    ).length
+    let total = this.fullState.numberOfMessageIDs
+
+    let text = ''
+
+    text = JSON.stringify({ progressKey, meta })
+
+    switch (progressKey) {
+      case PROGRESS_KEYS.RECEIVED_MESSAGEID:
+        break
+
+      default:
+        break
+    }
+
+    if (text !== '') {
+      this.progress(new Progress(progress, total, text))
     }
   }
 
   attachHandlers = () => {
     mark(`binary-handshake`)
     debug(`Attaching handlers`)
-    this.device.on('data', this.receiveHandler)
-    if (!this._externalTiming) {
-      this._interval = setInterval(() => {
-        this.loop(this.getNow())
-      }, this._loopInterval)
-    }
+    this.device.on(DEVICE_EVENTS.DATA, this.receiveHandler)
+    this._interval = setInterval(() => {
+      this.loop(this.getNow())
+    }, this._loopInterval)
   }
 
   detachHandlers = () => {
     measure(`binary-handshake`)
     debug(`Detaching handlers`)
-    this.device.removeListener('data', this.receiveHandler)
+    this.device.removeListener(DEVICE_EVENTS.DATA, this.receiveHandler)
     if (this._interval) {
       clearInterval(this._interval)
     }
@@ -573,8 +658,6 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
 
     // send initial request
     this.dispatch({ type: REQUEST })
-
-    this.progress(new Progress(0, 0, 'Requesting full state'))
   }
 
   loop = (now: number) => {
@@ -591,6 +674,6 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
   }
 
   getIdentifier() {
-    return 'electricui-binary-protocol-handshake'
+    return 'electricui-binary-protocol-handshake' as const
   }
 }
