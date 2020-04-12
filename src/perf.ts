@@ -1,3 +1,5 @@
+/* istanbul ignore file */
+
 // Here we do our perf marks.
 import {} from '@electricui/build-rollup-config'
 
