@@ -37,7 +37,6 @@ const testFactory = () => {
 
   const connectionHandshake = new BinaryConnectionHandshake({
     device: device,
-    externalTiming: true,
     requestListMessageID: 'c',
     requestObjectsMessageID: 'd',
     listMessageID: 'b',
@@ -73,6 +72,7 @@ describe('Connection Handshake State Machine', () => {
 
     expect(connectionHandshake.currentState.value).toBe('finish')
     expect(completeSpy.called).toBe(true)
+    connectionHandshake.detachHandlers()
   })
 
   test('retries when the incorrect amount is received', async () => {
@@ -95,6 +95,7 @@ describe('Connection Handshake State Machine', () => {
 
     expect(connectionHandshake.currentState.value).toBe('finish')
     expect(completeSpy.called).toBe(true)
+    connectionHandshake.detachHandlers()
   })
 
   test('retries a fixed amount of times when missing members of the message ID list', () => {
@@ -113,6 +114,7 @@ describe('Connection Handshake State Machine', () => {
 
     expect(connectionHandshake.currentState.value).toBe('fail')
     expect(errorSpy.called).toBe(true)
+    connectionHandshake.detachHandlers()
   })
 
   test('succeeds when only getting partial data per retry', () => {
@@ -129,12 +131,39 @@ describe('Connection Handshake State Machine', () => {
     connectionHandshake.dispatch({ type: RECEIVED, messageID: 'abc', payload: 123, }) // prettier-ignore
     connectionHandshake.dispatch({ type: RECEIVED, messageID: 'def', payload: 456, }) // prettier-ignore
     connectionHandshake.dispatch({ type: TIMEOUT })
+    connectionHandshake.dispatch({ type: RECEIVED, messageID: 'ghi', payload: 456, }) // prettier-ignore
+    connectionHandshake.dispatch({ type: RECEIVED, messageID: 'jki', payload: 456, }) // prettier-ignore
+
+    expect(connectionHandshake.currentState.value).toBe('finish')
+    expect(completeSpy.called).toBe(true)
+    connectionHandshake.detachHandlers()
+  })
+
+  test('succeeds with duplicate data being sent', () => {
+    const { connectionHandshake, completeSpy } = testFactory()
+
+    connectionHandshake.dispatch({ type: REQUEST })
+    connectionHandshake.dispatch({ type: RECEIVED, payload: ['abc', 'def'] })
+    // missing half of packet
+    connectionHandshake.dispatch({ type: RECEIVED_COUNT, payload: 4 })
+    // missing other half of packet
+    connectionHandshake.dispatch({ type: RECEIVED, payload: ['ghi', 'jki'] })
+    connectionHandshake.dispatch({ type: RECEIVED_COUNT, payload: 4 })
+
+    connectionHandshake.dispatch({ type: RECEIVED, messageID: 'abc', payload: 123, }) // prettier-ignore
     connectionHandshake.dispatch({ type: RECEIVED, messageID: 'def', payload: 456, }) // prettier-ignore
+    connectionHandshake.dispatch({ type: TIMEOUT })
+
+    // Send duplicate data
+    connectionHandshake.dispatch({ type: RECEIVED, messageID: 'abc', payload: 324, }) // prettier-ignore
+    connectionHandshake.dispatch({ type: RECEIVED, messageID: 'def', payload: 456, }) // prettier-ignore
+
     connectionHandshake.dispatch({ type: TIMEOUT })
     connectionHandshake.dispatch({ type: RECEIVED, messageID: 'ghi', payload: 456, }) // prettier-ignore
     connectionHandshake.dispatch({ type: RECEIVED, messageID: 'jki', payload: 456, }) // prettier-ignore
 
     expect(connectionHandshake.currentState.value).toBe('finish')
     expect(completeSpy.called).toBe(true)
+    connectionHandshake.detachHandlers()
   })
 })
