@@ -1,5 +1,9 @@
 import * as sinon from 'sinon'
 
+import BinaryConnectionHandshake, {
+  PROGRESS_KEYS,
+  ProgressMeta,
+} from '../src/handshake'
 import {
   DEVICE_EVENTS,
   Device,
@@ -10,7 +14,6 @@ import {
 } from '@electricui/core'
 import { MESSAGEIDS, TYPES } from '@electricui/protocol-binary-constants'
 
-import BinaryConnectionHandshake from '../src/handshake'
 import { EventEmitter } from 'events'
 import FakeTimers from '@sinonjs/fake-timers'
 import { Subscription } from 'rxjs'
@@ -38,6 +41,8 @@ type MockDeviceOptions<S> = {
     replyWithMessageIDList: boolean
     replyWithNumberOfMessageIDs: boolean
   }
+  modulusMessageIDListReplies: number
+  modulusMessageIDListReplyOffset: number
   heartbeatMessageID: string
   requestObjectsMessageID: string
   requestListMessageID: string
@@ -55,6 +60,9 @@ function defaultOptions<S extends StateShape>(state: S): MockDeviceOptions<S> {
       replyWithMessageIDList: true,
       replyWithNumberOfMessageIDs: true,
     },
+
+    modulusMessageIDListReplies: 1, // send every messageID on list
+    modulusMessageIDListReplyOffset: 0, // allows us to send the 'other' messageIDs if we mod the list
 
     heartbeatMessageID: MESSAGEIDS.HEARTBEAT,
     requestListMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST,
@@ -172,8 +180,6 @@ function buildCompliantDevice<S extends StateShape>(
                 message.messageID,
                 state[message.messageID],
               )
-            } else {
-              console.log("wasn't allowed to send,", message.messageID)
             }
 
             return
@@ -192,7 +198,13 @@ function buildCompliantDevice<S extends StateShape>(
 
               const listMessage = new Message(
                 options.listMessageID,
-                Object.keys(state),
+                // Only send those
+                Object.keys(state).filter(
+                  (msgId, index) =>
+                    (index + options.modulusMessageIDListReplyOffset) %
+                    options.modulusMessageIDListReplies ===
+                    0,
+                ),
               )
               listMessage.metadata.internal = true
 
@@ -613,7 +625,6 @@ describe('Connection Handshake', () => {
     success.catch(() => {
       // should have timed out
 
-      console.log(uiState)
       expect(uiState).toEqual({})
     })
 
@@ -656,7 +667,6 @@ describe('Connection Handshake', () => {
     success.catch(() => {
       // should have timed out
 
-      console.log(uiState)
       expect(uiState).toEqual({})
     })
 
@@ -1111,7 +1121,6 @@ describe('Connection Handshake', () => {
     success.catch(() => {
       // should have timed out
 
-      console.log(uiState)
       expect(uiState).toEqual({})
     })
 
@@ -1145,6 +1154,75 @@ describe('Connection Handshake', () => {
       device.receive(new Message('b', state.b))
       device.receive(new Message('c', state.c))
     })
+
+    await success
+
+    expect(uiState).toEqual(state)
+
+    cleanup(connectionHandshake, device, emitter)
+  })
+
+  test('allows for messageIDs to come in over multiple packets', async () => {
+    const state = {
+      a: 1,
+      b: 1,
+      c: 1,
+      d: 1,
+      e: 1,
+      f: 1,
+      g: 1,
+      h: 1,
+      i: 1,
+      j: 1,
+      k: 1,
+    }
+    const options = defaultOptions(state)
+    const { device, emitter } = buildCompliantDevice(state, options)
+
+    options.modulusMessageIDListReplies = 2 // send half the messages
+
+    const connectionHandshake = new BinaryConnectionHandshake({
+      device: device,
+      preset: 'default',
+    })
+
+    const uiState = monitorDeviceState(device)
+
+    emitter.on(MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_LIST, () => {
+      // every time we recieve a request, send the next 'half'
+      options.modulusMessageIDListReplyOffset++
+    })
+
+    const { success, progressSpy } = spyHandshakeProgress(connectionHandshake)
+
+    await success
+
+    expect(uiState).toEqual(state)
+
+    cleanup(connectionHandshake, device, emitter)
+  })
+
+  test('allows custom progress messages', async () => {
+    const state = defaultState
+    const options = defaultOptions(state)
+    const { device, emitter } = buildCompliantDevice(state, options)
+
+    const progressText = (
+      progressKey: PROGRESS_KEYS,
+      meta: ProgressMeta = {},
+    ): string | null => {
+      return 'progress!'
+    }
+
+    const connectionHandshake = new BinaryConnectionHandshake({
+      device: device,
+      preset: 'default',
+      progressText: progressText,
+    })
+
+    const uiState = monitorDeviceState(device)
+
+    const { success, progressSpy } = spyHandshakeProgress(connectionHandshake)
 
     await success
 
