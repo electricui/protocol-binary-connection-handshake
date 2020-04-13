@@ -1,7 +1,7 @@
 import * as sinon from 'sinon'
 
 import {
-  ConnectionInterface,
+  DEVICE_EVENTS,
   Device,
   DeviceManager,
   Message,
@@ -11,451 +11,401 @@ import {
 import { MESSAGEIDS, TYPES } from '@electricui/protocol-binary-constants'
 
 import BinaryConnectionHandshake from '../src/handshake'
+import { EventEmitter } from 'events'
+import FakeTimers from '@sinonjs/fake-timers'
+import { Subscription } from 'rxjs'
 
 const delay = (delay: number) => {
   return new Promise((res, rej) => {
     setTimeout(res, delay)
+    clock.tickAsync(delay)
   })
 }
 
-describe('Connection Handshake', () => {
-  test('performes a handshake through the happy path', async () => {
-    const deviceManager = new DeviceManager()
-    const device = new Device('mock', deviceManager)
+const defaultState = {
+  life_and_the_universe: 42,
+  foo: 'bar',
+}
 
-    const underlyingDevice = async (message: Message) => {
-      setImmediate(() => {
-        if (message.metadata.query) {
-          // if something gets queried,
-          device.receive(new Message(message.messageID, 0))
-        } else if (message.metadata.type === TYPES.CALLBACK) {
-          switch (message.messageID) {
-            case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST:
-              const listMessage = new Message(
-                MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
-                ['abc', 'def'],
-              )
-              listMessage.metadata.internal = true
+type StateShape = {
+  [key: string]: any
+}
 
-              const countMessage = new Message(
-                MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
-                2,
-              )
-              countMessage.metadata.internal = true
+type MockDeviceOptions<S> = {
+  sendHeartbeats: boolean
+  mutableSwitches: {
+    replyForMessageID: { [K in keyof S]?: boolean }
+    replyWithMessageIDList: boolean
+    replyWithNumberOfMessageIDs: boolean
+  }
+}
 
-              device.receive(listMessage)
-              device.receive(countMessage)
+function defaultOptions<S extends StateShape>(state: S): MockDeviceOptions<S> {
+  const opt: MockDeviceOptions<S> = {
+    sendHeartbeats: false,
+    mutableSwitches: {
+      replyForMessageID: {},
+      replyWithMessageIDList: true,
+      replyWithNumberOfMessageIDs: true,
+    },
+  }
 
-              break
-            case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS:
-              const abc = new Message('abc', 0)
-              device.receive(abc)
+  for (const stateKey of Object.keys(state)) {
+    opt.mutableSwitches.replyForMessageID[stateKey as keyof typeof state] = true
+  }
 
-              const def = new Message('def', 0)
-              device.receive(def)
-              break
-            default:
-              break
+  return opt
+}
+
+function cleanup(
+  handshake: BinaryConnectionHandshake,
+  device: Device,
+  emitter: EventEmitter,
+) {
+  handshake.detachHandlers()
+  device.removeAllListeners()
+  emitter.removeAllListeners()
+}
+
+const enum MOCK_DEVICE_EVENTS {
+  SENT_HEARTBEAT = 'sent-heartbeat',
+  SENT_STATE = 'sent-state',
+  RECEIVED_QUERY = 'received-query', // messageID
+  RECEIVED_REQUEST_LIST = 'received-request-list',
+  RECEIVED_REQUEST_OBJECTS = 'received-request-objects',
+  TICK = 'tick',
+}
+
+// Statically type our mock EventEmitter
+export interface DeviceEmitter extends EventEmitter {
+  // Event attachment
+  on(event: MOCK_DEVICE_EVENTS.SENT_HEARTBEAT, listener: () => void): this // prettier-ignore
+  on(event: MOCK_DEVICE_EVENTS.SENT_STATE, listener: () => void): this // prettier-ignore
+  on(event: MOCK_DEVICE_EVENTS.RECEIVED_QUERY, listener: (messageID: string) => void): this // prettier-ignore
+  on(event: MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_LIST, listener: () => void): this // prettier-ignore
+  on(event: MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_OBJECTS, listener: () => void): this // prettier-ignore
+  on(event: MOCK_DEVICE_EVENTS.TICK, listener: () => void): this // prettier-ignore
+
+  // Event attachment
+  once(event: MOCK_DEVICE_EVENTS.SENT_HEARTBEAT, listener: () => void): this // prettier-ignore
+  once(event: MOCK_DEVICE_EVENTS.SENT_STATE, listener: () => void): this // prettier-ignore
+  once(event: MOCK_DEVICE_EVENTS.RECEIVED_QUERY, listener: (messageID: string) => void): this // prettier-ignore
+  once(event: MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_LIST, listener: () => void): this // prettier-ignore
+  once(event: MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_OBJECTS, listener: () => void): this // prettier-ignore
+  once(event: MOCK_DEVICE_EVENTS.TICK, listener: () => void): this // prettier-ignore
+
+  // Event detatchment
+  removeListener(event: MOCK_DEVICE_EVENTS.SENT_HEARTBEAT, listener: () => void): this // prettier-ignore
+  removeListener(event: MOCK_DEVICE_EVENTS.SENT_STATE, listener: () => void): this // prettier-ignore
+  removeListener(event: MOCK_DEVICE_EVENTS.RECEIVED_QUERY, listener: (messageID: string) => void): this // prettier-ignore
+  removeListener(event: MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_LIST, listener: () => void): this // prettier-ignore
+  removeListener(event: MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_OBJECTS, listener: () => void): this // prettier-ignore
+  removeListener(event: MOCK_DEVICE_EVENTS.TICK, listener: () => void): this // prettier-ignore
+}
+
+function buildCompliantDevice<S extends StateShape>(
+  state: S,
+  options: MockDeviceOptions<S>,
+) {
+  const deviceManager = new DeviceManager()
+  const device = new Device('mock', deviceManager)
+  const emitter: DeviceEmitter = new EventEmitter()
+
+  const underlyingDevice = async (message: Message) => {
+    setImmediate(() => {
+      // Send heartbeat replies before every response
+      if (options.sendHeartbeats) {
+        const heartbeatMessage = new Message(
+          MESSAGEIDS.HEARTBEAT,
+          Math.floor(Math.random() * 100),
+        )
+        heartbeatMessage.metadata.internal = true
+        device.receive(heartbeatMessage)
+        emitter.emit(MOCK_DEVICE_EVENTS.SENT_HEARTBEAT)
+      }
+
+      if (!message.metadata.internal && message.metadata.query) {
+        emitter.emit(MOCK_DEVICE_EVENTS.RECEIVED_QUERY, message.messageID)
+
+        // if something gets queried check if it exists
+        if (Object.keys(state).includes(message.messageID)) {
+          // Reply with the state if our mutable switch is still true
+          if (options.mutableSwitches.replyForMessageID[message.messageID]) {
+            const reply = new Message(
+              message.messageID,
+              state[message.messageID],
+            )
+            device.receive(reply)
+            emitter.emit(
+              MOCK_DEVICE_EVENTS.SENT_STATE,
+              message.messageID,
+              message.payload,
+            )
           }
-        }
-      })
-    }
 
-    new MessageQueueImmediate(device)
-    new MessageRouterTestCallback(device, underlyingDevice)
+          return
+        }
+      } else if (message.metadata.type === TYPES.CALLBACK) {
+        switch (message.messageID) {
+          case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST:
+            emitter.emit(MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_LIST)
+
+            const listMessage = new Message(
+              MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
+              Object.keys(state),
+            )
+            listMessage.metadata.internal = true
+
+            if (options.mutableSwitches.replyWithMessageIDList) {
+              device.receive(listMessage)
+            }
+
+            const countMessage = new Message(
+              MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
+              Object.keys(state).length,
+            )
+            countMessage.metadata.internal = true
+
+            if (options.mutableSwitches.replyWithNumberOfMessageIDs) {
+              device.receive(countMessage)
+            }
+
+            break
+          case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS:
+            emitter.emit(MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_OBJECTS)
+
+            for (const messageID of Object.keys(state)) {
+              // Check if
+              if (options.mutableSwitches.replyForMessageID[messageID]) {
+                const def = new Message(messageID, state[messageID])
+                device.receive(def)
+              }
+            }
+            break
+          default:
+            break
+        }
+      }
+    })
+  }
+
+  // Build our message queue and our router to mock the logic on the device.
+  new MessageQueueImmediate(device)
+  new MessageRouterTestCallback(device, underlyingDevice)
+
+  return { device, emitter }
+}
+
+function monitorDeviceState<S extends StateShape = typeof defaultState>(
+  device: Device,
+): S {
+  const receivedState: StateShape = {}
+
+  device.on(DEVICE_EVENTS.DATA, (message: Message) => {
+    if (!message.metadata.internal) {
+      receivedState[message.messageID] = message.payload
+    }
+  })
+
+  return receivedState as S
+}
+
+function spyHandshakeProgress(handshake: BinaryConnectionHandshake) {
+  const progressSpy = jest.fn()
+  const errorSpy = jest.fn()
+  let subscription: Subscription
+
+  const success = new Promise((resolve, reject) => {
+    // Once the current stack frame has collapsed down, subscribe
+    process.nextTick(() => {
+      let sub = handshake.observable.subscribe(
+        progressSpy,
+        (...args) => {
+          errorSpy(...args)
+          reject(...args)
+        },
+        resolve,
+      )
+      subscription = sub
+    })
+  })
+
+  // Cancellation needs to happen at the end of the stack frame
+  const cancel = () => {
+    process.nextTick(() => {
+      if (!subscription.closed) {
+        subscription.unsubscribe()
+      } else {
+        console.log('Was already unsubscribed')
+      }
+    })
+  }
+
+  return {
+    progressSpy,
+    errorSpy,
+    success,
+    cancel,
+  }
+}
+
+let clock: FakeTimers.InstalledClock
+
+describe('Connection Handshake', () => {
+  beforeEach(() => {
+    clock = FakeTimers.install({
+      shouldAdvanceTime: true,
+      advanceTimeDelta: 20,
+    })
+  })
+
+  afterEach(() => {
+    clock.uninstall()
+  })
+
+  test('replies with the correct identifier', async () => {
+    const state = defaultState
+    const options = defaultOptions(state)
+    const { device, emitter } = buildCompliantDevice(defaultState, options)
 
     const connectionHandshake = new BinaryConnectionHandshake({
       device: device,
-      externalTiming: true,
       preset: 'default',
     })
 
-    const progressSpy = sinon.spy()
-    const errorSpy = sinon.spy()
+    expect(connectionHandshake.getIdentifier()).toBe(
+      'electricui-binary-protocol-handshake',
+    )
 
-    let abc
-    let def
+    cleanup(connectionHandshake, device, emitter)
+  })
 
-    device.on('data', (message: Message) => {
-      switch (message.messageID) {
-        case 'abc':
-          abc = message.payload
-          break
-        case 'def':
-          def = message.payload
-          break
-        default:
-          break
-      }
+  test('performs a handshake through the happy path', async () => {
+    const state = defaultState
+    const options = defaultOptions(state)
+    const { device, emitter } = buildCompliantDevice(defaultState, options)
+
+    const connectionHandshake = new BinaryConnectionHandshake({
+      device: device,
+      preset: 'default',
     })
 
-    const promise = new Promise((resolve, reject) => {
-      connectionHandshake.observable.subscribe(progressSpy, errorSpy, resolve)
-    })
+    const uiState = monitorDeviceState(device)
 
-    await promise
+    const { success, progressSpy } = spyHandshakeProgress(connectionHandshake)
 
-    expect(abc).toBe(0)
-    expect(def).toBe(0)
+    await success
+
+    expect(uiState).toEqual(state)
+
+    cleanup(connectionHandshake, device, emitter)
   })
 
   test("doesn't care if heartbeat messages are sent during the handshake", async () => {
-    const deviceManager = new DeviceManager()
-    const device = new Device('mock', deviceManager)
+    const state = defaultState
+    const options = defaultOptions(state)
+    options.sendHeartbeats = true
 
-    const underlyingDevice = async (message: Message) => {
-      setImmediate(() => {
-        if (message.metadata.query) {
-          // if something gets queried,
-          device.receive(new Message(message.messageID, 0))
-        } else if (message.metadata.type === TYPES.CALLBACK) {
-          switch (message.messageID) {
-            case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST:
-              const heartbeatMessage = new Message(MESSAGEIDS.HEARTBEAT, 32)
-              heartbeatMessage.metadata.internal = true
-
-              const listMessage = new Message(
-                MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
-                ['abc', 'def'],
-              )
-              listMessage.metadata.internal = true
-
-              const countMessage = new Message(
-                MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
-                2,
-              )
-              countMessage.metadata.internal = true
-
-              device.receive(heartbeatMessage)
-              device.receive(listMessage)
-              device.receive(countMessage)
-
-              break
-            case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS:
-              const abc = new Message('abc', 0)
-              device.receive(abc)
-
-              const def = new Message('def', 0)
-              device.receive(def)
-              break
-            default:
-              break
-          }
-        }
-      })
-    }
-
-    new MessageQueueImmediate(device)
-    new MessageRouterTestCallback(device, underlyingDevice)
+    const { device, emitter } = buildCompliantDevice(defaultState, options)
 
     const connectionHandshake = new BinaryConnectionHandshake({
       device: device,
-      externalTiming: true,
       preset: 'default',
     })
 
-    const progressSpy = sinon.spy()
-    const errorSpy = sinon.spy()
+    const uiState = monitorDeviceState(device)
 
-    let abc
-    let def
+    const { success } = spyHandshakeProgress(connectionHandshake)
 
-    device.on('data', (message: Message) => {
-      switch (message.messageID) {
-        case 'abc':
-          abc = message.payload
-          break
-        case 'def':
-          def = message.payload
-          break
-        default:
-          break
-      }
-    })
+    await success
 
-    const promise = new Promise((resolve, reject) => {
-      connectionHandshake.observable.subscribe(progressSpy, errorSpy, resolve)
-    })
+    expect(uiState).toEqual(state)
 
-    await promise
-
-    expect(abc).toBe(0)
-    expect(def).toBe(0)
+    cleanup(connectionHandshake, device, emitter)
   })
 
-  test('performes a handshake with list retries and object retries', async () => {
-    const deviceManager = new DeviceManager()
-    const device = new Device('mock', deviceManager)
+  test('cancels correctly after receiving a request for a list', async () => {
+    const state = defaultState
+    const options = defaultOptions(state)
+    options.sendHeartbeats = true
 
-    let listRequestNumber = 0
-    let objectRequestNumber = 0
+    // This will execute syncronously unless we break it up
+    options.mutableSwitches.replyWithNumberOfMessageIDs = false
 
-    // this is a mock device, it is async because it returns a promise
-    // which is expected by the router
-    const underlyingDevice = async (message: Message) => {
-      setImmediate(() => {
-        if (message.metadata.query) {
-          // if something gets queried,
-          device.receive(new Message(message.messageID, 0))
-        } else if (message.metadata.type === TYPES.CALLBACK) {
-          switch (message.messageID) {
-            case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST:
-              switch (listRequestNumber) {
-                case 0:
-                  // send nothing first time
-                  break
-                case 1:
-                  // send half the messages second time
-                  const listMessage1 = new Message(
-                    MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
-                    ['abc'],
-                  )
-                  listMessage1.metadata.internal = true
-
-                  const countMessage1 = new Message(
-                    MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
-                    2,
-                  )
-                  countMessage1.metadata.internal = true
-
-                  device.receive(listMessage1)
-                  device.receive(countMessage1)
-                  break
-
-                default:
-                  // send all messages the third time
-                  const listMessage2 = new Message(
-                    MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
-                    ['abc', 'def'],
-                  )
-                  listMessage2.metadata.internal = true
-
-                  const countMessage2 = new Message(
-                    MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
-                    2,
-                  )
-                  countMessage2.metadata.internal = true
-
-                  device.receive(listMessage2)
-                  device.receive(countMessage2)
-                  break
-              }
-
-              listRequestNumber = listRequestNumber + 1
-              break
-            case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS:
-              switch (objectRequestNumber) {
-                case 0:
-                  // send nothing the first time
-                  break
-                case 1:
-                  // send half the messages first time
-                  const abc1 = new Message('abc', 0)
-                  device.receive(abc1)
-                  break
-
-                default:
-                  // send all the third time
-                  const abc2 = new Message('abc', 0)
-                  device.receive(abc2)
-                  const def = new Message('def', 0)
-                  device.receive(def)
-
-                  break
-              }
-
-              objectRequestNumber = objectRequestNumber + 1
-              break
-            default:
-              break
-          }
-        }
-      })
-    }
-
-    new MessageQueueImmediate(device)
-    new MessageRouterTestCallback(device, underlyingDevice)
+    const { device, emitter } = buildCompliantDevice(defaultState, options)
 
     const connectionHandshake = new BinaryConnectionHandshake({
       device: device,
-      externalTiming: true,
       preset: 'default',
     })
 
-    const progressSpy = sinon.spy()
-    const errorSpy = sinon.spy()
-    const completeSpy = sinon.spy()
+    const uiState = monitorDeviceState(device)
 
-    let abc
-    let def
+    const { success, cancel } = spyHandshakeProgress(connectionHandshake)
 
-    device.on('data', (message: Message) => {
-      switch (message.messageID) {
-        case 'abc':
-          abc = message.payload
-          break
-        case 'def':
-          def = message.payload
-          break
-        default:
-          break
-      }
+    emitter.once(MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_LIST, () => {
+      cancel()
+      clock.nextAsync()
     })
 
-    const promise = new Promise(async (resolve, reject) => {
-      connectionHandshake.observable.subscribe(progressSpy, errorSpy, resolve)
-    })
-
-    let time = 0
-    connectionHandshake.getNow = () => time
-
-    // loop 5s into the future and loop again
-    for (let index = 0; index < 5; index++) {
-      time += 5000
-      connectionHandshake.loop(time)
-      await delay(0)
-    }
-
-    await promise
-
-    expect(abc).toBe(0)
-    expect(def).toBe(0)
-  })
-
-  test('times out', async () => {
-    const deviceManager = new DeviceManager()
-    const device = new Device('mock', deviceManager)
-
-    const underlyingDevice = async (message: Message) => {
-      // do nothing
-    }
-
-    new MessageQueueImmediate(device)
-    new MessageRouterTestCallback(device, underlyingDevice)
-
-    const connectionHandshake = new BinaryConnectionHandshake({
-      device: device,
-      externalTiming: true,
-      preset: 'default',
-    })
-
-    const progressSpy = sinon.spy()
-    const errorSpy = sinon.spy()
-    const completeSpy = sinon.spy()
-
-    const promise = new Promise((resolve, reject) => {
-      connectionHandshake.observable.subscribe(
-        progressSpy,
-        resolve,
-        completeSpy,
+    emitter.once(MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_OBJECTS, () => {
+      throw new Error(
+        'Received a request for objects when we should have cancelled',
       )
     })
 
-    let time = 0
-    connectionHandshake.getNow = () => time
+    let finished = false
 
-    // loop 10 seconds into the future enough times to max out the retries
-    for (let index = 0; index < 10; index++) {
-      time += 10000
-      connectionHandshake.getNow = () => time
-      connectionHandshake.loop(time)
-    }
+    success.then(() => {
+      finished = true
+    })
 
-    const err = await promise
+    await delay(4_000)
 
-    expect(err).toBeInstanceOf(Error)
+    expect(finished).toBe(false)
+
+    expect.assertions(1)
+    cleanup(connectionHandshake, device, emitter)
   })
 
-  test('cancels everything when told to', async () => {
-    const deviceManager = new DeviceManager()
-    const device = new Device('mock', deviceManager)
+  test('retries a full request of messageIDs when nothing has been received', async () => {
+    const state = defaultState
+    const options = defaultOptions(state)
+    const { device, emitter } = buildCompliantDevice(defaultState, options)
 
-    let unsubscribeHandler = () => {
-      console.error(
-        "Something weird happened and the unsubscribeHandler didn't get attached",
-      )
-    }
-
-    const underlyingDevice = async (message: Message) => {
-      setImmediate(() => {
-        if (message.metadata.query) {
-          // if something gets queried,
-          device.receive(new Message(message.messageID, 0))
-        } else if (message.metadata.type === TYPES.CALLBACK) {
-          switch (message.messageID) {
-            case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST:
-              // Cancel, then send some data
-              unsubscribeHandler()
-
-              const listMessage = new Message(
-                MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
-                ['abc', 'def'],
-              )
-              listMessage.metadata.internal = true
-
-              const countMessage = new Message(
-                MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
-                2,
-              )
-              countMessage.metadata.internal = true
-
-              device.receive(listMessage)
-              device.receive(countMessage)
-
-              break
-            case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS:
-              throw new Error('It should have cancelled itself by now')
-            default:
-              break
-          }
-        }
-      })
-    }
-
-    new MessageQueueImmediate(device)
-    new MessageRouterTestCallback(device, underlyingDevice)
+    // Have one retry
+    options.mutableSwitches.replyWithMessageIDList = false
+    options.mutableSwitches.replyWithNumberOfMessageIDs = false
+    let replyRetries = 0
 
     const connectionHandshake = new BinaryConnectionHandshake({
       device: device,
-      externalTiming: true,
       preset: 'default',
     })
 
-    const progressSpy = sinon.spy()
-    const errorSpy = sinon.spy()
-    const completeSpy = sinon.spy()
-
-    let abc
-    let def
-
-    device.on('data', (message: Message) => {
-      switch (message.messageID) {
-        case 'abc':
-          abc = message.payload
-          break
-        case 'def':
-          def = message.payload
-          break
-        default:
-          break
+    emitter.on(MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_LIST, () => {
+      if (replyRetries > 0) {
+        options.mutableSwitches.replyWithMessageIDList = true
+        options.mutableSwitches.replyWithNumberOfMessageIDs = true
       }
+      replyRetries++
     })
 
-    const promise = new Promise((resolve, reject) => {
-      const subscription = connectionHandshake.observable.subscribe(
-        progressSpy,
-        errorSpy,
-        completeSpy,
-      )
-
-      unsubscribeHandler = () => subscription.unsubscribe()
-
-      setTimeout(resolve, 10)
+    emitter.on(MOCK_DEVICE_EVENTS.TICK, () => {
+      clock.nextAsync()
     })
 
-    await promise
+    const uiState = monitorDeviceState(device)
 
-    expect(completeSpy.called).toBe(false)
-    // it'll also throw if it does anything
+    const { success, progressSpy } = spyHandshakeProgress(connectionHandshake)
+
+    // Our first subscription fires the first event, but we will ignore it, so skip to the timeout
+    clock.tickAsync(1100)
+
+    await success
+
+    expect(uiState).toEqual(state)
+
+    cleanup(connectionHandshake, device, emitter)
   })
 })

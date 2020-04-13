@@ -37,6 +37,7 @@ interface ActionMap {
 export const enum PROGRESS_KEYS {
   FINISHED = 'finished',
   RECEIVED_AMOUNT_OF_MESSAGEIDS = 'received-amount-of-messageids',
+  RECEIVED_MESSAGEIDS = 'received-messageids',
   RECEIVED_MESSAGEID = 'received-messageid',
   REQUEST_LIST = 'request-list',
   REQUEST_OBJECTS = 'request-objects',
@@ -84,6 +85,10 @@ const actionMap: ActionMap = {
 
     // this will replace our fullState
     fullState.messageIDsReceived = Array.from(allSet.values())
+
+    fullState.updateProgress(PROGRESS_KEYS.RECEIVED_MESSAGEIDS, {
+      total: fullState.messageIDsReceived.length,
+    })
   },
   populateHashmap: (
     fullState: FullStateShape,
@@ -147,6 +152,10 @@ const actionMap: ActionMap = {
     }
 
     fullState.messageIDObjects.set(event.messageID, event.payload)
+
+    fullState.updateProgress(PROGRESS_KEYS.RECEIVED_MESSAGEID, {
+      messageID: event.messageID,
+    })
   },
   incrementRetries: (
     fullState: FullStateShape,
@@ -171,11 +180,14 @@ const actionMap: ActionMap = {
 }
 
 // Transitions
-export const REQUEST = 'REQUEST'
-export const RECEIVED = 'RECEIVED'
-export const TIMEOUT = 'TIMEOUT'
-export const RECEIVED_COUNT = 'RECEIVED_COUNT'
-export const RECEIVED_OBJECT = 'RECEIVED_OBJECT'
+
+export const enum TRANSITIONS {
+  START = 'START',
+  TIMEOUT = 'TIMEOUT',
+  RECEIVED_COUNT = 'RECEIVED_COUNT',
+  RECEIVED_MESSAGEIDS = 'RECEIVED_MESSAGEIDS',
+  RECEIVED_OBJECT = 'RECEIVED_OBJECT',
+}
 
 const stateMachine = Machine(
   {
@@ -184,48 +196,37 @@ const stateMachine = Machine(
     key: 'handshake',
     states: {
       request_ids: {
-        initial: 'request_amount',
+        initial: 'await_list',
         states: {
-          request_amount: {
-            on: {
-              REQUEST: {
-                target: 'await_list',
-                actions: ['requestList'],
-              },
-              TIMEOUT: [
-                {
-                  target: 'request_amount',
-                  cond: 'belowMaxRetries',
-                  actions: ['incrementRetries', 'requestList'],
-                },
-                { target: '#handshake.fail' },
-              ],
-            },
-          },
           await_list: {
             on: {
-              RECEIVED_COUNT: [
-                {
-                  target: '#handshake.request_objects_bulk',
-                  cond: 'correctAmountOfMessageIDsRecevied',
-                },
-                {
-                  target: 'await_list',
-                  cond: 'belowMaxRetries',
-                  actions: ['incrementRetries', 'requestList'],
-                },
-                { target: '#handshake.fail' },
-              ],
-              RECEIVED: {
-                target: 'await_list',
+              // As messageIDs come in, append them
+              RECEIVED_MESSAGEIDS: {
+                internal: true,
                 actions: ['appendReceived'],
               },
+              RECEIVED_COUNT: [
+                {
+                  // If we have received our messageIDs and the correct amount has been received, request the objects
+                  cond: 'correctAmountOfMessageIDsRecevied',
+                  target: '#handshake.request_objects_bulk',
+                },
+                {
+                  // If we received the count but we haven't received the correct amount of messageIDs, wait for a timeout
+                  internal: true,
+                  cond: 'belowMaxRetries',
+                },
+                // If we are not below our maximum retries, fail out.
+                { target: '#handshake.fail' },
+              ],
               TIMEOUT: [
                 {
-                  target: 'await_list',
+                  // Retry if below our max retries
+                  internal: true,
                   cond: 'belowMaxRetries',
                   actions: ['incrementRetries', 'requestList'],
                 },
+                // Otherwise fail out
                 { target: '#handshake.fail' },
               ],
             },
@@ -238,20 +239,20 @@ const stateMachine = Machine(
         states: {
           await_objects: {
             on: {
-              RECEIVED: [
+              RECEIVED_OBJECT: [
                 {
                   cond: 'allReceivedWhenThisAdded',
                   actions: ['addObject'],
                   target: '#handshake.finish',
                 },
                 {
-                  target: 'await_objects',
                   actions: ['addObject'],
+                  internal: true,
                 },
               ],
               TIMEOUT: [
                 {
-                  target: 'await_objects',
+                  internal: true,
                   cond: 'shouldRetryAll',
                   actions: ['requestObjects', 'incrementRetries'],
                 },
@@ -270,7 +271,7 @@ const stateMachine = Machine(
         states: {
           await_object: {
             on: {
-              RECEIVED: [
+              RECEIVED_OBJECT: [
                 {
                   cond: 'allReceivedWhenThisAdded',
                   actions: ['addObject'],
@@ -279,12 +280,12 @@ const stateMachine = Machine(
                 {
                   cond: 'individualsLeftToRequest',
                   actions: ['addObject', 'requestIndividual'],
-                  target: 'await_object',
+                  internal: true,
                 },
               ],
               TIMEOUT: [
                 {
-                  target: 'await_object',
+                  internal: true,
                   cond: 'belowMaxRetries',
                   actions: ['requestIndividual', 'incrementRetries'],
                 },
@@ -347,8 +348,8 @@ const stateMachine = Machine(
         for (const messageID of allMessageIDs) {
           const value = fullState.messageIDObjects.get(messageID)
 
-          // Check if this messageID is empty, doing a special case check for
-          // the message we're in the middle of receiving
+          // If we have one missing that isn't the one we're about to add
+          // we're not finished yet
           if (value === undefined && messageID !== event.messageID) {
             return false
           }
@@ -421,15 +422,18 @@ interface ResponseObject {
 interface ProgressMeta {
   messageID?: string
   retries?: number
+  total?: number
 }
 
 export default class BinaryConnectionHandshake extends DeviceHandshake {
-  currentState = stateMachine.initialState // starts as request_amount
+  currentState = stateMachine.initialState // starts as await_list
   fullState: FullStateShape
-  _lastReceived: number = 0
-  timeout: number
-  _interval: NodeJS.Timer | null = null
-  _loopInterval: number = 50
+
+  private timeout: number = 1000
+  private timeoutSince: number
+  private interval: NodeJS.Timer | null = null
+  private loopInterval: number = 50
+  private lastProgress: number
 
   constructor(options: ConnectionHandshakeOptions) {
     super(options.device)
@@ -482,7 +486,9 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
       onFail: this.onFail,
     }
 
-    this.timeout = options.timeout || 1000
+    this.timeout = options.timeout ?? this.timeout
+    this.lastProgress = this.getNow()
+    this.timeoutSince = this.getNow()
   }
 
   onSubscribe() {
@@ -493,7 +499,14 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     return new Date().getTime()
   }
 
+  getLoopInterval = () => {
+    return this.loopInterval
+  }
+
   dispatch = (event: Event) => {
+    debug(' > STATE TRANSITION', this.currentState.value)
+    debug(' > EVENT', event)
+
     // Calculate the next state
     const nextState = stateMachine.transition(
       this.currentState,
@@ -511,10 +524,11 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
       }
     })
 
-    debug('DISPATCH', this.currentState.value, event, nextState.value)
-
     // Commit the transition to the next state
     this.currentState = nextState
+
+    debug(' > TO', nextState.value)
+    debug(' ^^^ ')
   }
 
   sendCallback = (messageID: string) => {
@@ -551,9 +565,9 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
 
     debug('Handshake succeeded!')
 
-    this.updateProgress(PROGRESS_KEYS.FINISHED)
-
     this.complete()
+
+    this.updateProgress(PROGRESS_KEYS.FINISHED)
   }
 
   onFail = () => {
@@ -572,16 +586,18 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
       switch (messageID) {
         case this.fullState.listMessageID:
           measure(`binary-handshake:request-list`)
-          this.dispatch({ type: RECEIVED, payload })
-          this._lastReceived = this.getNow()
+          this.dispatch({ type: TRANSITIONS.RECEIVED_MESSAGEIDS, payload })
+          this.timeoutSince = this.getNow()
+
           return
         case this.fullState.amountMessageID:
           this.fullState.numberOfMessageIDs = payload
-          this.dispatch({ type: RECEIVED_COUNT, payload })
-          this._lastReceived = this.getNow()
+          this.dispatch({ type: TRANSITIONS.RECEIVED_COUNT, payload })
+          this.timeoutSince = this.getNow()
 
-          // Indicate that we've received something
-          this.updateProgress(PROGRESS_KEYS.RECEIVED_AMOUNT_OF_MESSAGEIDS)
+          this.updateProgress(PROGRESS_KEYS.RECEIVED_AMOUNT_OF_MESSAGEIDS, {
+            total: payload,
+          })
 
           return
         default:
@@ -600,17 +616,17 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
         'request_objects_individually.await_objects',
       )
     ) {
-      this.dispatch({ type: RECEIVED, messageID, payload })
+      // Do this in two steps
+      this.dispatch({ type: TRANSITIONS.RECEIVED_OBJECT, messageID, payload })
 
-      this._lastReceived = this.getNow()
-
-      this.updateProgress(PROGRESS_KEYS.RECEIVED_MESSAGEID, {
-        messageID,
-      })
+      this.timeoutSince = this.getNow()
     }
   }
 
   updateProgress = (progressKey: PROGRESS_KEYS, meta: ProgressMeta = {}) => {
+    const now = this.getNow()
+    const diff = now - this.lastProgress
+
     let progress = Array.from(this.fullState.messageIDObjects.values()).filter(
       val => val !== undefined,
     ).length
@@ -618,7 +634,11 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
 
     let text = ''
 
-    text = JSON.stringify({ progressKey, meta })
+    text = `+${diff}ms: ${JSON.stringify({ progressKey, meta })}`
+
+    debug(
+      `Progress Update +${diff}ms: ${JSON.stringify({ progressKey, meta })}`,
+    )
 
     switch (progressKey) {
       case PROGRESS_KEYS.RECEIVED_MESSAGEID:
@@ -631,41 +651,48 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     if (text !== '') {
       this.progress(new Progress(progress, total, text))
     }
+
+    console.log(text)
+
+    this.lastProgress = this.getNow()
   }
 
   attachHandlers = () => {
     mark(`binary-handshake`)
     debug(`Attaching handlers`)
     this.device.on(DEVICE_EVENTS.DATA, this.receiveHandler)
-    this._interval = setInterval(() => {
+    this.interval = setInterval(() => {
       this.loop(this.getNow())
-    }, this._loopInterval)
+    }, this.loopInterval)
   }
 
   detachHandlers = () => {
     measure(`binary-handshake`)
     debug(`Detaching handlers`)
     this.device.removeListener(DEVICE_EVENTS.DATA, this.receiveHandler)
-    if (this._interval) {
-      clearInterval(this._interval)
+    if (this.interval) {
+      clearInterval(this.interval)
     }
   }
 
   connect = () => {
+    console.log('START')
+
     debug(`Starting Handshake`)
 
     this.attachHandlers()
 
     // send initial request
-    this.dispatch({ type: REQUEST })
+    actionMap.requestList(this.fullState, {
+      type: TRANSITIONS.START 
+    }, this.dispatch)
   }
 
   loop = (now: number) => {
-    debug(`Event loop`)
-    if (now - this._lastReceived > this.timeout) {
+    if (now - this.timeoutSince > this.timeout) {
       debug(`Timed out during:`, this.currentState.value)
-      this.dispatch({ type: TIMEOUT })
-      this._lastReceived = now
+      this.dispatch({ type: TRANSITIONS.TIMEOUT })
+      this.timeoutSince = now
     }
   }
 
