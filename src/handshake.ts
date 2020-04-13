@@ -42,6 +42,7 @@ export const enum PROGRESS_KEYS {
   REQUEST_LIST = 'request-list',
   REQUEST_OBJECTS = 'request-objects',
   REQUEST_INDIVIDUAL = 'request-individual',
+  SWITCH_INDIVIDUAL_REQUEST_MODE = 'switch-to-individual-request-mode',
   FAILED = 'failed',
 }
 
@@ -83,6 +84,7 @@ const actionMap: ActionMap = {
       allSet.add(messageID)
     }
 
+
     // this will replace our fullState
     fullState.messageIDsReceived = Array.from(allSet.values())
 
@@ -101,6 +103,18 @@ const actionMap: ActionMap = {
       fullState.messageIDObjects.set(messageID, undefined)
     }
   },
+  logIndividualRequestMode: (
+    fullState: FullStateShape,
+    event: Event,
+    dispatch: Dispatch,
+  ) => {
+    fullState.updateProgress(PROGRESS_KEYS.SWITCH_INDIVIDUAL_REQUEST_MODE, {
+      received: Array.from(fullState.messageIDObjects.values()).filter(
+        val => val !== undefined,
+      ).length,
+      total: fullState.messageIDsReceived.length,
+    })
+  },
   requestIndividual: (
     fullState: FullStateShape,
     event: Event,
@@ -110,9 +124,7 @@ const actionMap: ActionMap = {
 
     for (const messageID of allMessageIDs) {
       if (fullState.messageIDObjects.get(messageID) === undefined) {
-        fullState.sendQuery(messageID).catch(err => {
-          console.log("Couldn't request individual", messageID)
-        })
+        fullState.sendQuery(messageID)
 
         fullState.updateProgress(PROGRESS_KEYS.REQUEST_INDIVIDUAL, {
           messageID,
@@ -123,6 +135,15 @@ const actionMap: ActionMap = {
       }
     }
 
+    /*
+      This is logically impossible, 
+      either
+        `request_objects_individually` has just been entered, specifically because there were individuals left
+        `individualsLeftToRequest` just fired, we have individuals left to request
+        a timeout has been called, if a message were received during this time, `allReceivedWhenThisAdded` would avoid this action
+    */
+
+    /* istanbul ignore next */
     throw new Error(
       `All ${
         allMessageIDs.length
@@ -145,7 +166,7 @@ const actionMap: ActionMap = {
     }
 
     if (event.payload === undefined) {
-      console.log(
+      debug(
         `Event payload for ${event.messageID} was undefined, setting to null`,
       )
       event.payload = null
@@ -235,30 +256,36 @@ const stateMachine = Machine(
       },
       request_objects_bulk: {
         initial: 'await_objects',
+        // On entry request objects
         onEntry: ['populateHashmap', 'resetRetries', 'requestObjects'],
         states: {
           await_objects: {
             on: {
+              // When data comes in
               RECEIVED_OBJECT: [
                 {
+                  // If this message would cause us to be finished, we're about to be done.
+                  // add the object and transition to the finish
                   cond: 'allReceivedWhenThisAdded',
                   actions: ['addObject'],
                   target: '#handshake.finish',
                 },
                 {
+                  // otherwise just add the object and keep waiting
                   actions: ['addObject'],
                   internal: true,
                 },
               ],
               TIMEOUT: [
                 {
+                  // If we haven't received anything yet, try a retry if we can
                   internal: true,
                   cond: 'shouldRetryAll',
-                  actions: ['requestObjects', 'incrementRetries'],
+                  actions: ['incrementRetries', 'requestObjects'],
                 },
                 {
+                  // If we're out of retries with this method, transition to an individual request / response
                   target: '#handshake.request_objects_individually',
-                  cond: 'belowMaxRetries',
                 },
               ],
             },
@@ -267,17 +294,22 @@ const stateMachine = Machine(
       },
       request_objects_individually: {
         initial: 'await_object',
-        onEntry: ['resetRetries', 'requestIndividual'],
+        // Ask for our first messageID
+        onEntry: ['resetRetries', 'logIndividualRequestMode', 'requestIndividual'],
         states: {
           await_object: {
             on: {
+              // Once we receive data
               RECEIVED_OBJECT: [
                 {
+                  // If this message would cause us to be finished, we're about to be done.
+                  // add the object and transition to the finish
                   cond: 'allReceivedWhenThisAdded',
                   actions: ['addObject'],
                   target: '#handshake.finish',
                 },
                 {
+                  // Otherwise there are individuals left to request, request one
                   cond: 'individualsLeftToRequest',
                   actions: ['addObject', 'requestIndividual'],
                   internal: true,
@@ -285,10 +317,13 @@ const stateMachine = Machine(
               ],
               TIMEOUT: [
                 {
+                  // We get n retries globally during this process, if we time out while
+                  // waiting for something, see if we can try again
                   internal: true,
                   cond: 'belowMaxRetries',
-                  actions: ['requestIndividual', 'incrementRetries'],
+                  actions: ['incrementRetries', 'requestIndividual'],
                 },
+                // otherwise fail out
                 { target: '#handshake.fail' },
               ],
             },
@@ -367,7 +402,14 @@ const stateMachine = Machine(
             return true
           }
         }
+        
+        /*
+          I'm 99% sure this is logically impossible, if there are no messageIDs left to request,
+          then the `allReceivedWhenThisAdded` gate would have run before this, 
+          preventing this function from running at all, since we would be finished.
+        */
 
+        /* istanbul ignore next */
         return false
       },
     },
@@ -423,6 +465,7 @@ interface ProgressMeta {
   messageID?: string
   retries?: number
   total?: number
+  received?: number
 }
 
 export default class BinaryConnectionHandshake extends DeviceHandshake {
@@ -448,6 +491,12 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
       ) {
         throw new Error(
           'Need to specify all messageIDs when not using a preset with a BinaryConnectionHandshake',
+        )
+      }
+
+      if (new Set([options.requestListMessageID, options.requestObjectsMessageID,options.amountMessageID, options.listMessageID ]).size !== 4) {
+        throw new Error(
+          'Duplicate messageID used in custom setup of BinaryConnectionHandshake.',
         )
       }
 
@@ -499,10 +548,6 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     return new Date().getTime()
   }
 
-  getLoopInterval = () => {
-    return this.loopInterval
-  }
-
   dispatch = (event: Event) => {
     debug(' > STATE TRANSITION', this.currentState.value)
     debug(' > EVENT', event)
@@ -518,10 +563,8 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     nextState.actions.forEach(actionKey => {
       const action = actionMap[String(actionKey)]
 
-      if (action) {
-        // run the action, they can directly mutate state if they want.
-        action(this.fullState, event, this.dispatch)
-      }
+      // run the action, they can directly mutate state if they want.
+      action(this.fullState, event, this.dispatch)
     })
 
     // Commit the transition to the next state
@@ -605,7 +648,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
       }
     }
 
-    // it's a developer packet
+    // it's a developer packet, sent during the correct time
     if (
       matchesState(
         this.currentState.value,
@@ -613,13 +656,16 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
       ) ||
       matchesState(
         this.currentState.value,
-        'request_objects_individually.await_objects',
+        'request_objects_individually.await_object',
       )
     ) {
       // Do this in two steps
       this.dispatch({ type: TRANSITIONS.RECEIVED_OBJECT, messageID, payload })
 
       this.timeoutSince = this.getNow()
+    } else {
+      // received a developer packet outside of our request window
+      debug(`Received a developer packet outside of our request window, ${messageID}`)
     }
   }
 

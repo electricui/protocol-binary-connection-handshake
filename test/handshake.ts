@@ -38,6 +38,13 @@ type MockDeviceOptions<S> = {
     replyWithMessageIDList: boolean
     replyWithNumberOfMessageIDs: boolean
   }
+  heartbeatMessageID: string
+  requestObjectsMessageID: string
+  requestListMessageID: string
+  amountMessageID: string
+  listMessageID: string
+  shouldThrowDuringQuery: boolean
+  shouldThrowDuringCallback: boolean
 }
 
 function defaultOptions<S extends StateShape>(state: S): MockDeviceOptions<S> {
@@ -48,6 +55,16 @@ function defaultOptions<S extends StateShape>(state: S): MockDeviceOptions<S> {
       replyWithMessageIDList: true,
       replyWithNumberOfMessageIDs: true,
     },
+
+    heartbeatMessageID: MESSAGEIDS.HEARTBEAT,
+    requestListMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST,
+    listMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
+    amountMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
+    requestObjectsMessageID:
+      MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS,
+
+    shouldThrowDuringQuery: false,
+    shouldThrowDuringCallback: false,
   }
 
   for (const stateKey of Object.keys(state)) {
@@ -74,33 +91,37 @@ const enum MOCK_DEVICE_EVENTS {
   RECEIVED_REQUEST_LIST = 'received-request-list',
   RECEIVED_REQUEST_OBJECTS = 'received-request-objects',
   TICK = 'tick',
+  RECEIVED_CALLBACK = 'received-callback',
 }
 
 // Statically type our mock EventEmitter
 export interface DeviceEmitter extends EventEmitter {
   // Event attachment
   on(event: MOCK_DEVICE_EVENTS.SENT_HEARTBEAT, listener: () => void): this // prettier-ignore
-  on(event: MOCK_DEVICE_EVENTS.SENT_STATE, listener: () => void): this // prettier-ignore
+  on(event: MOCK_DEVICE_EVENTS.SENT_STATE, listener: (messageID: string, payload: any) => void): this // prettier-ignore
   on(event: MOCK_DEVICE_EVENTS.RECEIVED_QUERY, listener: (messageID: string) => void): this // prettier-ignore
   on(event: MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_LIST, listener: () => void): this // prettier-ignore
   on(event: MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_OBJECTS, listener: () => void): this // prettier-ignore
   on(event: MOCK_DEVICE_EVENTS.TICK, listener: () => void): this // prettier-ignore
+  on(event: MOCK_DEVICE_EVENTS.RECEIVED_CALLBACK, listener: () => void): this // prettier-ignore
 
   // Event attachment
   once(event: MOCK_DEVICE_EVENTS.SENT_HEARTBEAT, listener: () => void): this // prettier-ignore
-  once(event: MOCK_DEVICE_EVENTS.SENT_STATE, listener: () => void): this // prettier-ignore
+  once(event: MOCK_DEVICE_EVENTS.SENT_STATE, listener: (messageID: string, payload: any) => void): this // prettier-ignore
   once(event: MOCK_DEVICE_EVENTS.RECEIVED_QUERY, listener: (messageID: string) => void): this // prettier-ignore
   once(event: MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_LIST, listener: () => void): this // prettier-ignore
   once(event: MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_OBJECTS, listener: () => void): this // prettier-ignore
   once(event: MOCK_DEVICE_EVENTS.TICK, listener: () => void): this // prettier-ignore
+  once(event: MOCK_DEVICE_EVENTS.RECEIVED_CALLBACK, listener: () => void): this // prettier-ignore
 
   // Event detatchment
   removeListener(event: MOCK_DEVICE_EVENTS.SENT_HEARTBEAT, listener: () => void): this // prettier-ignore
-  removeListener(event: MOCK_DEVICE_EVENTS.SENT_STATE, listener: () => void): this // prettier-ignore
+  removeListener(event: MOCK_DEVICE_EVENTS.SENT_STATE, listener: (messageID: string, payload: any) => void): this // prettier-ignore
   removeListener(event: MOCK_DEVICE_EVENTS.RECEIVED_QUERY, listener: (messageID: string) => void): this // prettier-ignore
   removeListener(event: MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_LIST, listener: () => void): this // prettier-ignore
   removeListener(event: MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_OBJECTS, listener: () => void): this // prettier-ignore
   removeListener(event: MOCK_DEVICE_EVENTS.TICK, listener: () => void): this // prettier-ignore
+  removeListener(event: MOCK_DEVICE_EVENTS.RECEIVED_CALLBACK, listener: () => void): this // prettier-ignore
 }
 
 function buildCompliantDevice<S extends StateShape>(
@@ -112,80 +133,106 @@ function buildCompliantDevice<S extends StateShape>(
   const emitter: DeviceEmitter = new EventEmitter()
 
   const underlyingDevice = async (message: Message) => {
-    setImmediate(() => {
-      // Send heartbeat replies before every response
-      if (options.sendHeartbeats) {
-        const heartbeatMessage = new Message(
-          MESSAGEIDS.HEARTBEAT,
-          Math.floor(Math.random() * 100),
-        )
-        heartbeatMessage.metadata.internal = true
-        device.receive(heartbeatMessage)
-        emitter.emit(MOCK_DEVICE_EVENTS.SENT_HEARTBEAT)
-      }
+    return new Promise((resolve, reject) => {
+      setImmediate(() => {
+        // Send heartbeat replies before every response
+        if (options.sendHeartbeats) {
+          const heartbeatMessage = new Message(
+            options.heartbeatMessageID,
+            Math.floor(Math.random() * 100),
+          )
+          heartbeatMessage.metadata.internal = true
+          device.receive(heartbeatMessage)
+          emitter.emit(MOCK_DEVICE_EVENTS.SENT_HEARTBEAT)
+        }
 
-      if (!message.metadata.internal && message.metadata.query) {
-        emitter.emit(MOCK_DEVICE_EVENTS.RECEIVED_QUERY, message.messageID)
+        if (!message.metadata.internal && message.metadata.query) {
+          emitter.emit(MOCK_DEVICE_EVENTS.RECEIVED_QUERY, message.messageID)
 
-        // if something gets queried check if it exists
-        if (Object.keys(state).includes(message.messageID)) {
-          // Reply with the state if our mutable switch is still true
-          if (options.mutableSwitches.replyForMessageID[message.messageID]) {
-            const reply = new Message(
-              message.messageID,
-              state[message.messageID],
-            )
-            device.receive(reply)
-            emitter.emit(
-              MOCK_DEVICE_EVENTS.SENT_STATE,
-              message.messageID,
-              message.payload,
-            )
+          if (!Object.keys(state).includes(message.messageID)) {
+            console.log('State does not contain a messageID', message.messageID)
           }
 
-          return
-        }
-      } else if (message.metadata.type === TYPES.CALLBACK) {
-        switch (message.messageID) {
-          case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST:
-            emitter.emit(MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_LIST)
+          if (options.shouldThrowDuringQuery) {
+            reject(new Error('Throwing during a query'))
+            return
+          }
 
-            const listMessage = new Message(
-              MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
-              Object.keys(state),
-            )
-            listMessage.metadata.internal = true
-
-            if (options.mutableSwitches.replyWithMessageIDList) {
-              device.receive(listMessage)
+          // if something gets queried check if it exists
+          if (Object.keys(state).includes(message.messageID)) {
+            // Reply with the state if our mutable switch is still true
+            if (options.mutableSwitches.replyForMessageID[message.messageID]) {
+              const reply = new Message(
+                message.messageID,
+                state[message.messageID],
+              )
+              device.receive(reply)
+              emitter.emit(
+                MOCK_DEVICE_EVENTS.SENT_STATE,
+                message.messageID,
+                state[message.messageID],
+              )
+            } else {
+              console.log("wasn't allowed to send,", message.messageID)
             }
 
-            const countMessage = new Message(
-              MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
-              Object.keys(state).length,
-            )
-            countMessage.metadata.internal = true
+            return
+          }
+        } else if (message.metadata.type === TYPES.CALLBACK) {
+          emitter.emit(MOCK_DEVICE_EVENTS.RECEIVED_CALLBACK)
 
-            if (options.mutableSwitches.replyWithNumberOfMessageIDs) {
-              device.receive(countMessage)
-            }
+          if (options.shouldThrowDuringCallback) {
+            reject(new Error('Throwing during a callback'))
+            return
+          }
 
-            break
-          case MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS:
-            emitter.emit(MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_OBJECTS)
+          switch (message.messageID) {
+            case options.requestListMessageID:
+              emitter.emit(MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_LIST)
 
-            for (const messageID of Object.keys(state)) {
-              // Check if
-              if (options.mutableSwitches.replyForMessageID[messageID]) {
-                const def = new Message(messageID, state[messageID])
-                device.receive(def)
+              const listMessage = new Message(
+                options.listMessageID,
+                Object.keys(state),
+              )
+              listMessage.metadata.internal = true
+
+              if (options.mutableSwitches.replyWithMessageIDList) {
+                device.receive(listMessage)
               }
-            }
-            break
-          default:
-            break
+
+              const countMessage = new Message(
+                options.amountMessageID,
+                Object.keys(state).length,
+              )
+              countMessage.metadata.internal = true
+
+              if (options.mutableSwitches.replyWithNumberOfMessageIDs) {
+                device.receive(countMessage)
+              }
+
+              break
+            case options.requestObjectsMessageID:
+              emitter.emit(MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_OBJECTS)
+
+              for (const messageID of Object.keys(state)) {
+                // Check if
+                if (options.mutableSwitches.replyForMessageID[messageID]) {
+                  const def = new Message(messageID, state[messageID])
+                  device.receive(def)
+                }
+              }
+              break
+            default:
+              break
+          }
         }
-      }
+
+        // Resolve the promse if we didn't exit early
+        resolve()
+      })
+
+      // Allow for a time fast-forward once the promise is instantiated
+      emitter.emit(MOCK_DEVICE_EVENTS.TICK)
     })
   }
 
@@ -241,6 +288,8 @@ function spyHandshakeProgress(handshake: BinaryConnectionHandshake) {
     })
   }
 
+  clock.tickAsync(1100)
+
   return {
     progressSpy,
     errorSpy,
@@ -266,7 +315,7 @@ describe('Connection Handshake', () => {
   test('replies with the correct identifier', async () => {
     const state = defaultState
     const options = defaultOptions(state)
-    const { device, emitter } = buildCompliantDevice(defaultState, options)
+    const { device, emitter } = buildCompliantDevice(state, options)
 
     const connectionHandshake = new BinaryConnectionHandshake({
       device: device,
@@ -280,10 +329,93 @@ describe('Connection Handshake', () => {
     cleanup(connectionHandshake, device, emitter)
   })
 
+  test('throws when partially setup for a custom handshake', async () => {
+    const state = defaultState
+    const options = defaultOptions(state)
+    const { device, emitter } = buildCompliantDevice(state, options)
+
+    options.heartbeatMessageID = 'heartbeat'
+    options.requestObjectsMessageID = 'a'
+    options.requestListMessageID = 'b'
+    options.amountMessageID = 'c'
+
+    let connectionHandshake: BinaryConnectionHandshake
+
+    expect(() => {
+      connectionHandshake = new BinaryConnectionHandshake({
+        device: device,
+        preset: 'custom',
+        requestObjectsMessageID: options.requestObjectsMessageID,
+        requestListMessageID: options.requestListMessageID,
+        amountMessageID: options.amountMessageID,
+        // listMessageID: options.listMessageID, // ignore one to throw
+      })
+    }).toThrow('Need to specify all messageIDs')
+
+    // cleanup(connectionHandshake, device, emitter)
+  })
+
+  test('functions with custom messageIDs on both ends', async () => {
+    const state = defaultState
+    const options = defaultOptions(state)
+    const { device, emitter } = buildCompliantDevice(state, options)
+
+    options.heartbeatMessageID = 'heartbeat'
+    options.requestObjectsMessageID = 'a'
+    options.requestListMessageID = 'b'
+    options.amountMessageID = 'c'
+    options.listMessageID = 'd'
+
+    const connectionHandshake = new BinaryConnectionHandshake({
+      device: device,
+      preset: 'custom',
+      requestObjectsMessageID: options.requestObjectsMessageID,
+      requestListMessageID: options.requestListMessageID,
+      amountMessageID: options.amountMessageID,
+      listMessageID: options.listMessageID,
+    })
+
+    const uiState = monitorDeviceState(device)
+
+    const { success, progressSpy } = spyHandshakeProgress(connectionHandshake)
+
+    await success
+
+    expect(uiState).toEqual(state)
+
+    cleanup(connectionHandshake, device, emitter)
+  })
+
+  test('throws when using a duplicate messageID', async () => {
+    const state = defaultState
+    const options = defaultOptions(state)
+    const { device, emitter } = buildCompliantDevice(state, options)
+
+    options.heartbeatMessageID = 'heartbeat'
+    options.requestObjectsMessageID = 'a'
+    options.requestListMessageID = 'b'
+    options.amountMessageID = options.requestListMessageID // duplicate messageID
+
+    let connectionHandshake: BinaryConnectionHandshake
+
+    expect(() => {
+      connectionHandshake = new BinaryConnectionHandshake({
+        device: device,
+        preset: 'custom',
+        requestObjectsMessageID: options.requestObjectsMessageID,
+        requestListMessageID: options.requestListMessageID,
+        amountMessageID: options.amountMessageID,
+        listMessageID: options.listMessageID, // ignore one to throw
+      })
+    }).toThrow('Duplicate messageID used')
+
+    // cleanup(connectionHandshake, device, emitter)
+  })
+
   test('performs a handshake through the happy path', async () => {
     const state = defaultState
     const options = defaultOptions(state)
-    const { device, emitter } = buildCompliantDevice(defaultState, options)
+    const { device, emitter } = buildCompliantDevice(state, options)
 
     const connectionHandshake = new BinaryConnectionHandshake({
       device: device,
@@ -306,7 +438,7 @@ describe('Connection Handshake', () => {
     const options = defaultOptions(state)
     options.sendHeartbeats = true
 
-    const { device, emitter } = buildCompliantDevice(defaultState, options)
+    const { device, emitter } = buildCompliantDevice(state, options)
 
     const connectionHandshake = new BinaryConnectionHandshake({
       device: device,
@@ -332,7 +464,7 @@ describe('Connection Handshake', () => {
     // This will execute syncronously unless we break it up
     options.mutableSwitches.replyWithNumberOfMessageIDs = false
 
-    const { device, emitter } = buildCompliantDevice(defaultState, options)
+    const { device, emitter } = buildCompliantDevice(state, options)
 
     const connectionHandshake = new BinaryConnectionHandshake({
       device: device,
@@ -371,7 +503,7 @@ describe('Connection Handshake', () => {
   test('retries a full request of messageIDs when nothing has been received', async () => {
     const state = defaultState
     const options = defaultOptions(state)
-    const { device, emitter } = buildCompliantDevice(defaultState, options)
+    const { device, emitter } = buildCompliantDevice(state, options)
 
     // Have one retry
     options.mutableSwitches.replyWithMessageIDList = false
@@ -399,8 +531,620 @@ describe('Connection Handshake', () => {
 
     const { success, progressSpy } = spyHandshakeProgress(connectionHandshake)
 
-    // Our first subscription fires the first event, but we will ignore it, so skip to the timeout
-    clock.tickAsync(1100)
+    await success
+
+    expect(uiState).toEqual(state)
+
+    expect.assertions(1)
+    cleanup(connectionHandshake, device, emitter)
+  })
+
+  test('retries a bulk request of messageIDs when nothing has been received', async () => {
+    const state = defaultState
+    const options = defaultOptions(state)
+    const { device, emitter } = buildCompliantDevice(state, options)
+
+    // Don't send _any_ objects the first time
+    for (const messageID of Object.keys(state)) {
+      options.mutableSwitches.replyForMessageID[
+        messageID as keyof typeof state
+      ] = false
+    }
+    let replyRetries = 0
+
+    const connectionHandshake = new BinaryConnectionHandshake({
+      device: device,
+      preset: 'default',
+    })
+
+    emitter.on(MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_OBJECTS, () => {
+      if (replyRetries > 0) {
+        for (const messageID of Object.keys(state)) {
+          options.mutableSwitches.replyForMessageID[
+            messageID as keyof typeof state
+          ] = true
+        }
+      }
+      replyRetries++
+    })
+
+    emitter.on(MOCK_DEVICE_EVENTS.TICK, () => {
+      clock.nextAsync()
+    })
+
+    const uiState = monitorDeviceState(device)
+
+    const { success, progressSpy } = spyHandshakeProgress(connectionHandshake)
+
+    await success
+
+    expect(uiState).toEqual(state)
+
+    expect.assertions(1)
+    cleanup(connectionHandshake, device, emitter)
+  })
+
+  test('fails a bulk request of messageIDs when nothing has been received more times than retries allow', async () => {
+    const state = defaultState
+    const options = defaultOptions(state)
+    const { device, emitter } = buildCompliantDevice(state, options)
+
+    // Don't send _any_ objects the first time
+    for (const messageID of Object.keys(state)) {
+      options.mutableSwitches.replyForMessageID[
+        messageID as keyof typeof state
+      ] = false
+    }
+
+    const connectionHandshake = new BinaryConnectionHandshake({
+      device: device,
+      preset: 'default',
+    })
+
+    emitter.on(MOCK_DEVICE_EVENTS.TICK, () => {
+      clock.nextAsync()
+    })
+
+    const uiState = monitorDeviceState(device)
+
+    const { success, progressSpy } = spyHandshakeProgress(connectionHandshake)
+
+    // Setup our error catcher
+    success.catch(() => {
+      // should have timed out
+
+      console.log(uiState)
+      expect(uiState).toEqual({})
+    })
+
+    // Skip forward into the future when all the timeouts have occurred
+    await delay(10_000)
+
+    expect.assertions(1)
+    cleanup(connectionHandshake, device, emitter)
+  })
+
+  // This doesn't provide any additional branch coverage but it's good to know it fails
+  test('fails a handshake if the device never replies to anything', async () => {
+    const state = defaultState
+    const options = defaultOptions(state)
+    const { device, emitter } = buildCompliantDevice(state, options)
+
+    // Don't send any objects
+    for (const messageID of Object.keys(state)) {
+      options.mutableSwitches.replyForMessageID[
+        messageID as keyof typeof state
+      ] = false
+    }
+    options.mutableSwitches.replyWithMessageIDList = false
+    options.mutableSwitches.replyWithNumberOfMessageIDs = false
+
+    const connectionHandshake = new BinaryConnectionHandshake({
+      device: device,
+      preset: 'default',
+    })
+
+    emitter.on(MOCK_DEVICE_EVENTS.TICK, () => {
+      clock.nextAsync()
+    })
+
+    const uiState = monitorDeviceState(device)
+
+    const { success, progressSpy } = spyHandshakeProgress(connectionHandshake)
+
+    // Setup our error catcher
+    success.catch(() => {
+      // should have timed out
+
+      console.log(uiState)
+      expect(uiState).toEqual({})
+    })
+
+    // Skip forward into the future when all the timeouts have occurred
+    await delay(10_000)
+
+    expect.assertions(1)
+    cleanup(connectionHandshake, device, emitter)
+  })
+
+  test("switches to individual request mode and succeeds on a partial bulk request failure when there's only one messageID left", async () => {
+    const state = defaultState
+    const options = defaultOptions(state)
+    const { device, emitter } = buildCompliantDevice(state, options)
+
+    // Don't send any objects yet
+    for (const messageID of Object.keys(state)) {
+      options.mutableSwitches.replyForMessageID[
+        messageID as keyof typeof state
+      ] = false
+    }
+
+    const connectionHandshake = new BinaryConnectionHandshake({
+      device: device,
+      preset: 'default',
+    })
+
+    emitter.once(MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_OBJECTS, () => {
+      // On object request, allow foo to be sent, but don't sent the others
+      options.mutableSwitches.replyForMessageID.foo = true
+
+      // Add to our assertion count
+      expect(true).toBe(true)
+    })
+
+    emitter.on(MOCK_DEVICE_EVENTS.RECEIVED_QUERY, messageID => {
+      // When MessageIDs are directly queried, allow them to be sent
+      options.mutableSwitches.replyForMessageID[
+        messageID as keyof typeof state
+      ] = true
+    })
+
+    emitter.on(MOCK_DEVICE_EVENTS.TICK, () => {
+      clock.nextAsync()
+    })
+
+    const uiState = monitorDeviceState(device)
+
+    const { success, progressSpy } = spyHandshakeProgress(connectionHandshake)
+
+    await delay(10_000)
+
+    await success
+
+    expect(uiState).toEqual(state)
+
+    expect.assertions(2)
+    cleanup(connectionHandshake, device, emitter)
+  })
+
+  test('switches to individual request mode and succeeds on a partial bulk request failure with multiple messageIDs', async () => {
+    const state = {
+      a: 1,
+      b: 2,
+      c: 3,
+      d: 4,
+      e: 5,
+      f: 6,
+      g: 7,
+    }
+    const options = defaultOptions(state)
+    const { device, emitter } = buildCompliantDevice(state, options)
+
+    // Don't send any objects yet
+    for (const messageID of Object.keys(state)) {
+      options.mutableSwitches.replyForMessageID[
+        messageID as keyof typeof state
+      ] = false
+    }
+
+    const connectionHandshake = new BinaryConnectionHandshake({
+      device: device,
+      preset: 'default',
+    })
+
+    emitter.once(MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_OBJECTS, () => {
+      // On object request, allow 'a' to be sent, but don't sent the others
+      options.mutableSwitches.replyForMessageID.a = true
+
+      // Add to our assertion count
+      expect(true).toBe(true)
+    })
+
+    emitter.on(MOCK_DEVICE_EVENTS.RECEIVED_QUERY, messageID => {
+      // When MessageIDs are directly queried, allow them to be sent
+      options.mutableSwitches.replyForMessageID[
+        messageID as keyof typeof state
+      ] = true
+    })
+
+    emitter.on(MOCK_DEVICE_EVENTS.TICK, () => {
+      clock.nextAsync()
+    })
+
+    const uiState = monitorDeviceState(device)
+
+    const { success, progressSpy } = spyHandshakeProgress(connectionHandshake)
+
+    await delay(10_000)
+
+    await success
+
+    expect(uiState).toEqual(state)
+
+    expect.assertions(2)
+    cleanup(connectionHandshake, device, emitter)
+  })
+
+  test("receiving a runtime message during the last individual request stage doesn't fail", async () => {
+    const state = {
+      a: 1,
+      b: 2,
+      c: 3,
+      // d: 4 // a runtime message
+    }
+    const options = defaultOptions(state)
+    const { device, emitter } = buildCompliantDevice(state, options)
+
+    // Don't send any objects yet
+    for (const messageID of Object.keys(state)) {
+      options.mutableSwitches.replyForMessageID[
+        messageID as keyof typeof state
+      ] = false
+    }
+
+    const connectionHandshake = new BinaryConnectionHandshake({
+      device: device,
+      preset: 'default',
+    })
+
+    emitter.once(MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_OBJECTS, () => {
+      // On object request, allow 'a' to be sent, but don't sent the others
+      options.mutableSwitches.replyForMessageID.a = true
+
+      // Add to our assertion count
+      expect(true).toBe(true)
+    })
+
+    emitter.on(MOCK_DEVICE_EVENTS.RECEIVED_QUERY, messageID => {
+      // When MessageIDs are directly queried, allow them to be sent
+      options.mutableSwitches.replyForMessageID[
+        messageID as keyof typeof state
+      ] = true
+
+      if (messageID === 'c') {
+        process.nextTick(() => {
+          device.receive(new Message('d', 4))
+        })
+      }
+    })
+
+    emitter.on(MOCK_DEVICE_EVENTS.TICK, () => {
+      clock.nextAsync()
+    })
+
+    const uiState = monitorDeviceState(device)
+
+    const { success, progressSpy } = spyHandshakeProgress(connectionHandshake)
+
+    await delay(10_000)
+
+    await success
+
+    expect(uiState).toEqual(
+      Object.assign({
+        ...state,
+        d: 4,
+      }),
+    )
+
+    expect.assertions(2)
+    cleanup(connectionHandshake, device, emitter)
+  })
+
+  test("receiving messages multiple times doesn't fail", async () => {
+    const state = {
+      a: 1,
+      b: 2,
+      c: 3,
+    }
+    const options = defaultOptions(state)
+    const { device, emitter } = buildCompliantDevice(state, options)
+
+    // Don't send any objects yet
+    for (const messageID of Object.keys(state)) {
+      options.mutableSwitches.replyForMessageID[
+        messageID as keyof typeof state
+      ] = false
+    }
+
+    const connectionHandshake = new BinaryConnectionHandshake({
+      device: device,
+      preset: 'default',
+    })
+
+    emitter.once(MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_OBJECTS, () => {
+      // On object request, allow 'a' to be sent, but don't sent the others
+      options.mutableSwitches.replyForMessageID.a = true
+
+      // Add to our assertion count
+      expect(true).toBe(true)
+    })
+
+    emitter.on(MOCK_DEVICE_EVENTS.RECEIVED_QUERY, messageID => {
+      // When MessageIDs are directly queried, allow them to be sent
+      options.mutableSwitches.replyForMessageID[
+        messageID as keyof typeof state
+      ] = true
+
+      if (messageID === 'b') {
+        device.receive(new Message('b', 2))
+      }
+    })
+
+    emitter.on(MOCK_DEVICE_EVENTS.TICK, () => {
+      clock.nextAsync()
+    })
+
+    const uiState = monitorDeviceState(device)
+
+    const { success, progressSpy } = spyHandshakeProgress(connectionHandshake)
+
+    await delay(10_000)
+
+    await success
+
+    expect(uiState).toEqual(state)
+
+    expect.assertions(2)
+    cleanup(connectionHandshake, device, emitter)
+  })
+
+  test('receiving undefined payloads are handled in bulk request mode', async () => {
+    const state = {
+      a: 1,
+      b: undefined,
+      c: 3,
+    }
+    const options = defaultOptions(state)
+    const { device, emitter } = buildCompliantDevice(state, options)
+
+    const connectionHandshake = new BinaryConnectionHandshake({
+      device: device,
+      preset: 'default',
+    })
+
+    const uiState = monitorDeviceState(device)
+
+    const { success, progressSpy } = spyHandshakeProgress(connectionHandshake)
+
+    await success
+
+    expect(uiState).toEqual(state)
+
+    cleanup(connectionHandshake, device, emitter)
+  })
+
+  test('receiving undefined payloads are handled in individual request mode', async () => {
+    const state = {
+      a: 1,
+      b: undefined,
+      c: 3,
+    }
+    const options = defaultOptions(state)
+    const { device, emitter } = buildCompliantDevice(state, options)
+
+    // Don't send any objects yet
+    for (const messageID of Object.keys(state)) {
+      options.mutableSwitches.replyForMessageID[
+        messageID as keyof typeof state
+      ] = false
+    }
+
+    const connectionHandshake = new BinaryConnectionHandshake({
+      device: device,
+      preset: 'default',
+    })
+
+    emitter.once(MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_OBJECTS, () => {
+      // On object request, allow 'a' to be sent, but don't sent the others
+      options.mutableSwitches.replyForMessageID.a = true
+
+      // Add to our assertion count
+      expect(true).toBe(true)
+    })
+
+    emitter.on(MOCK_DEVICE_EVENTS.RECEIVED_QUERY, messageID => {
+      // When MessageIDs are directly queried, allow them to be sent
+      options.mutableSwitches.replyForMessageID[
+        messageID as keyof typeof state
+      ] = true
+    })
+
+    emitter.on(MOCK_DEVICE_EVENTS.TICK, () => {
+      clock.nextAsync()
+    })
+
+    const uiState = monitorDeviceState(device)
+
+    const { success, progressSpy } = spyHandshakeProgress(connectionHandshake)
+
+    await delay(10_000)
+
+    await success
+
+    expect(uiState).toEqual(state)
+
+    expect.assertions(2)
+    cleanup(connectionHandshake, device, emitter)
+  })
+
+  test('recovers when a callback throws', async () => {
+    const state = defaultState
+    const options = defaultOptions(state)
+    const { device, emitter } = buildCompliantDevice(state, options)
+
+    options.shouldThrowDuringCallback = true
+
+    const connectionHandshake = new BinaryConnectionHandshake({
+      device: device,
+      preset: 'default',
+    })
+
+    let throws = 0
+
+    emitter.on(MOCK_DEVICE_EVENTS.RECEIVED_CALLBACK, () => {
+      // Allow for one throw
+      if (throws > 0) {
+        options.shouldThrowDuringCallback = false
+      }
+
+      throws++
+    })
+
+    const uiState = monitorDeviceState(device)
+
+    const { success, progressSpy } = spyHandshakeProgress(connectionHandshake)
+
+    await success
+
+    expect(uiState).toEqual(state)
+
+    cleanup(connectionHandshake, device, emitter)
+  })
+
+  test('recovers when a query throws', async () => {
+    const state = {
+      a: 1,
+      b: 2,
+      c: 3,
+      d: 4,
+      e: 5,
+      f: 6,
+      g: 7,
+    }
+    const options = defaultOptions(state)
+    const { device, emitter } = buildCompliantDevice(state, options)
+
+    options.shouldThrowDuringQuery = true
+
+    // Don't send any objects yet
+    for (const messageID of Object.keys(state)) {
+      options.mutableSwitches.replyForMessageID[
+        messageID as keyof typeof state
+      ] = false
+    }
+
+    const connectionHandshake = new BinaryConnectionHandshake({
+      device: device,
+      preset: 'default',
+    })
+
+    emitter.once(MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_OBJECTS, () => {
+      // On object request, allow 'a' to be sent, but don't sent the others
+      options.mutableSwitches.replyForMessageID.a = true
+
+      // Add to our assertion count
+      expect(true).toBe(true)
+    })
+
+    emitter.on(MOCK_DEVICE_EVENTS.RECEIVED_QUERY, messageID => {
+      // Allow for one throw
+      if (throws > 0) {
+        options.shouldThrowDuringQuery = false
+      }
+
+      throws++
+
+      // When MessageIDs are directly queried, allow them to be sent
+      options.mutableSwitches.replyForMessageID[
+        messageID as keyof typeof state
+      ] = true
+    })
+
+    let throws = 0
+
+    emitter.on(MOCK_DEVICE_EVENTS.TICK, () => {
+      clock.nextAsync()
+    })
+
+    const uiState = monitorDeviceState(device)
+
+    const { success, progressSpy } = spyHandshakeProgress(connectionHandshake)
+
+    await delay(10_000)
+
+    await success
+
+    expect(uiState).toEqual(state)
+
+    expect.assertions(2)
+    cleanup(connectionHandshake, device, emitter)
+  })
+
+  test('fails a bulk request with a custom timeout', async () => {
+    const state = defaultState
+    const options = defaultOptions(state)
+    const { device, emitter } = buildCompliantDevice(state, options)
+
+    // Don't send _any_ objects the first time
+    for (const messageID of Object.keys(state)) {
+      options.mutableSwitches.replyForMessageID[
+        messageID as keyof typeof state
+      ] = false
+    }
+
+    const connectionHandshake = new BinaryConnectionHandshake({
+      device: device,
+      preset: 'default',
+      timeout: 10, // custom timeout of 10ms
+    })
+
+    emitter.on(MOCK_DEVICE_EVENTS.TICK, () => {
+      clock.nextAsync()
+    })
+
+    const uiState = monitorDeviceState(device)
+
+    const { success, progressSpy } = spyHandshakeProgress(connectionHandshake)
+
+    // Setup our error catcher
+    success.catch(() => {
+      // should have timed out
+
+      console.log(uiState)
+      expect(uiState).toEqual({})
+    })
+
+    // Skip forward into the future when all the timeouts have occurred
+    await delay(10_000)
+
+    expect.assertions(1)
+    cleanup(connectionHandshake, device, emitter)
+  })
+
+  test('handles receiving devloper messages outside of the request window', async () => {
+    const state = {
+      a: 1,
+      b: 2,
+      c: 3,
+    }
+    const options = defaultOptions(state)
+    const { device, emitter } = buildCompliantDevice(state, options)
+
+    const connectionHandshake = new BinaryConnectionHandshake({
+      device: device,
+      preset: 'default',
+    })
+
+    const uiState = monitorDeviceState(device)
+
+    const { success, progressSpy } = spyHandshakeProgress(connectionHandshake)
+
+    emitter.once(MOCK_DEVICE_EVENTS.RECEIVED_REQUEST_LIST, () => {
+      // Send developer packets before sending the list, outside of the request window
+      device.receive(new Message('b', state.b))
+      device.receive(new Message('c', state.c))
+    })
 
     await success
 
