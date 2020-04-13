@@ -84,7 +84,6 @@ const actionMap: ActionMap = {
       allSet.add(messageID)
     }
 
-
     // this will replace our fullState
     fullState.messageIDsReceived = Array.from(allSet.values())
 
@@ -295,7 +294,11 @@ const stateMachine = Machine(
       request_objects_individually: {
         initial: 'await_object',
         // Ask for our first messageID
-        onEntry: ['resetRetries', 'logIndividualRequestMode', 'requestIndividual'],
+        onEntry: [
+          'resetRetries',
+          'logIndividualRequestMode',
+          'requestIndividual',
+        ],
         states: {
           await_object: {
             on: {
@@ -402,7 +405,7 @@ const stateMachine = Machine(
             return true
           }
         }
-        
+
         /*
           I'm 99% sure this is logically impossible, if there are no messageIDs left to request,
           then the `allReceivedWhenThisAdded` gate would have run before this, 
@@ -447,7 +450,7 @@ interface ConnectionHandshakeOptions {
   /**
    * Each progress message can be customised with either a string or a function that receives the retry number
    */
-  progressMessages?: {}
+  progressText?: (progressKey: PROGRESS_KEYS, meta: ProgressMeta) => string | null
 }
 
 interface HandshakeMessageIDs {
@@ -461,7 +464,7 @@ interface ResponseObject {
   [key: string]: any
 }
 
-interface ProgressMeta {
+export interface ProgressMeta {
   messageID?: string
   retries?: number
   total?: number
@@ -477,6 +480,10 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
   private interval: NodeJS.Timer | null = null
   private loopInterval: number = 50
   private lastProgress: number
+  private getProgressText: (
+    progressKey: PROGRESS_KEYS,
+    meta: ProgressMeta,
+  ) => string | null
 
   constructor(options: ConnectionHandshakeOptions) {
     super(options.device)
@@ -494,7 +501,16 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
         )
       }
 
-      if (new Set([options.requestListMessageID, options.requestObjectsMessageID,options.amountMessageID, options.listMessageID ]).size !== 4) {
+      if (
+        new Set(
+          [
+            options.requestListMessageID,
+            options.requestObjectsMessageID,
+            options.amountMessageID,
+            options.listMessageID,
+          ],
+        ).size !== 4
+      ) {
         throw new Error(
           'Duplicate messageID used in custom setup of BinaryConnectionHandshake.',
         )
@@ -515,6 +531,8 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
         amountMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
       }
     }
+
+    this.getProgressText = options.progressText ?? this.defaultProgressText
 
     this.fullState = {
       ...messageIDs,
@@ -665,7 +683,56 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
       this.timeoutSince = this.getNow()
     } else {
       // received a developer packet outside of our request window
-      debug(`Received a developer packet outside of our request window, ${messageID}`)
+      debug(
+        `Received a developer packet outside of our request window, ${messageID}`,
+      )
+    }
+  }
+
+  defaultProgressText = (
+    progressKey: PROGRESS_KEYS,
+    meta: ProgressMeta,
+  ): string | null => {
+    switch (progressKey) {
+      case PROGRESS_KEYS.FINISHED:
+        return 'Finished'
+
+      case PROGRESS_KEYS.RECEIVED_AMOUNT_OF_MESSAGEIDS:
+        return 'Received list of MessageIDs, requesting data now.'
+
+      case PROGRESS_KEYS.RECEIVED_MESSAGEIDS:
+        return 'Received all data.'
+
+      case PROGRESS_KEYS.RECEIVED_MESSAGEID:
+        return `Received ${meta.messageID}`
+
+      case PROGRESS_KEYS.REQUEST_LIST:
+        return `Requesting list of MessageIDs${
+          meta.retries !== undefined && meta.retries > 0
+            ? ` (retry #${meta.retries})`
+            : ''
+        }`
+
+      case PROGRESS_KEYS.REQUEST_OBJECTS:
+        return `Requesting bulk data${
+          meta.retries !== undefined && meta.retries > 0
+            ? ` (retry #${meta.retries})`
+            : ''
+        }`
+      case PROGRESS_KEYS.REQUEST_INDIVIDUAL:
+        return `Requesting ${meta.messageID}${
+          meta.retries !== undefined && meta.retries > 0
+            ? ` (retry #${meta.retries})`
+            : ''
+        }`
+
+      case PROGRESS_KEYS.SWITCH_INDIVIDUAL_REQUEST_MODE:
+        return `Received ${
+          (((meta.received!) / (meta.total!)) * 100).toFixed(0)
+         }% of MessageIDs in bulk, switching to individual request mode`
+
+      case PROGRESS_KEYS.FAILED:
+        return null
     }
   }
 
@@ -678,27 +745,15 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     ).length
     let total = this.fullState.numberOfMessageIDs
 
-    let text = ''
-
-    text = `+${diff}ms: ${JSON.stringify({ progressKey, meta })}`
+    let text = this.getProgressText(progressKey, meta)
 
     debug(
       `Progress Update +${diff}ms: ${JSON.stringify({ progressKey, meta })}`,
     )
 
-    switch (progressKey) {
-      case PROGRESS_KEYS.RECEIVED_MESSAGEID:
-        break
-
-      default:
-        break
-    }
-
-    if (text !== '') {
+    if (text !== null) {
       this.progress(new Progress(progress, total, text))
     }
-
-    console.log(text)
 
     this.lastProgress = this.getNow()
   }
@@ -722,16 +777,18 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
   }
 
   connect = () => {
-    console.log('START')
-
     debug(`Starting Handshake`)
 
     this.attachHandlers()
 
     // send initial request
-    actionMap.requestList(this.fullState, {
-      type: TRANSITIONS.START 
-    }, this.dispatch)
+    actionMap.requestList(
+      this.fullState,
+      {
+        type: TRANSITIONS.START,
+      },
+      this.dispatch,
+    )
   }
 
   loop = (now: number) => {
