@@ -1,16 +1,17 @@
-import { matchesState, Machine } from 'xstate'
-
 import {
+  DEVICE_EVENTS,
   Device,
   DeviceHandshake,
   Message,
   Progress,
-  DEVICE_EVENTS,
 } from '@electricui/core'
 import { MESSAGEIDS, TYPES } from '@electricui/protocol-binary-constants'
+import { Machine, matchesState } from 'xstate'
 import { mark, measure } from './perf'
 
-const debug = require('debug')(
+import debug from 'debug'
+
+const dConnectionHandshake = debug(
   'electricui-protocol-binary:connection-handshake',
 )
 
@@ -144,9 +145,7 @@ const actionMap: ActionMap = {
 
     /* istanbul ignore next */
     throw new Error(
-      `All ${
-        allMessageIDs.length
-      } messageIDs had data, why requesting individual?`,
+      `All ${allMessageIDs.length} messageIDs had data, why requesting individual?`,
     )
   },
   addObject: (
@@ -155,7 +154,7 @@ const actionMap: ActionMap = {
     dispatch: Dispatch,
   ) => {
     if (fullState.messageIDObjects.get(event.messageID) !== undefined) {
-      debug(
+      dConnectionHandshake(
         `received ${
           event.messageID
         } again, payload was ${fullState.messageIDObjects.get(
@@ -165,7 +164,7 @@ const actionMap: ActionMap = {
     }
 
     if (event.payload === undefined) {
-      debug(
+      dConnectionHandshake(
         `Event payload for ${event.messageID} was undefined, setting to null`,
       )
       event.payload = null
@@ -450,7 +449,10 @@ interface ConnectionHandshakeOptions {
   /**
    * Each progress message can be customised with either a string or a function that receives the retry number
    */
-  progressText?: (progressKey: PROGRESS_KEYS, meta: ProgressMeta) => string | null
+  progressText?: (
+    progressKey: PROGRESS_KEYS,
+    meta: ProgressMeta,
+  ) => string | null
 }
 
 interface HandshakeMessageIDs {
@@ -502,14 +504,12 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
       }
 
       if (
-        new Set(
-          [
-            options.requestListMessageID,
-            options.requestObjectsMessageID,
-            options.amountMessageID,
-            options.listMessageID,
-          ],
-        ).size !== 4
+        new Set([
+          options.requestListMessageID,
+          options.requestObjectsMessageID,
+          options.amountMessageID,
+          options.listMessageID,
+        ]).size !== 4
       ) {
         throw new Error(
           'Duplicate messageID used in custom setup of BinaryConnectionHandshake.',
@@ -567,8 +567,8 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
   }
 
   dispatch = (event: Event) => {
-    debug(' > STATE TRANSITION', this.currentState.value)
-    debug(' > EVENT', event)
+    dConnectionHandshake(' > STATE TRANSITION', this.currentState.value)
+    dConnectionHandshake(' > EVENT', event)
 
     // Calculate the next state
     const nextState = stateMachine.transition(
@@ -588,12 +588,12 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     // Commit the transition to the next state
     this.currentState = nextState
 
-    debug(' > TO', nextState.value)
-    debug(' ^^^ ')
+    dConnectionHandshake(' > TO', nextState.value)
+    dConnectionHandshake(' ^^^ ')
   }
 
   sendCallback = (messageID: string) => {
-    debug('Sent Callback', messageID)
+    dConnectionHandshake('Sent Callback', messageID)
 
     const callback = new Message(messageID, null)
     callback.metadata.type = TYPES.CALLBACK
@@ -608,7 +608,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
   }
 
   sendQuery = (messageID: string) => {
-    debug('Sent Query', messageID)
+    dConnectionHandshake('Sent Query', messageID)
 
     const callback = new Message(messageID, null)
     callback.metadata.type = TYPES.CALLBACK
@@ -624,7 +624,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     measure(`binary-handshake:request-objects`)
     this.detachHandlers()
 
-    debug('Handshake succeeded!')
+    dConnectionHandshake('Handshake succeeded!')
 
     this.complete()
 
@@ -633,13 +633,13 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
 
   onFail = () => {
     this.detachHandlers()
-    debug('Failed handshake...')
+    dConnectionHandshake('Failed handshake...')
     this.updateProgress(PROGRESS_KEYS.FAILED)
     this.error(new Error('Maximum retries hit.'))
   }
 
   receiveHandler = (message: Message) => {
-    const internal = <boolean>message.metadata.internal
+    const internal = message.metadata.internal
     const messageID = message.messageID
     const payload = message.payload
 
@@ -683,7 +683,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
       this.timeoutSince = this.getNow()
     } else {
       // received a developer packet outside of our request window
-      debug(
+      dConnectionHandshake(
         `Received a developer packet outside of our request window, ${messageID}`,
       )
     }
@@ -727,9 +727,9 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
         }`
 
       case PROGRESS_KEYS.SWITCH_INDIVIDUAL_REQUEST_MODE:
-        return `Received ${
-          (((meta.received!) / (meta.total!)) * 100).toFixed(0)
-         }% of MessageIDs in bulk, switching to individual request mode`
+        return `Received ${((meta.received! / meta.total!) * 100).toFixed(
+          0,
+        )}% of MessageIDs in bulk, switching to individual request mode`
 
       case PROGRESS_KEYS.FAILED:
         return null
@@ -740,14 +740,14 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     const now = this.getNow()
     const diff = now - this.lastProgress
 
-    let progress = Array.from(this.fullState.messageIDObjects.values()).filter(
-      val => val !== undefined,
-    ).length
-    let total = this.fullState.numberOfMessageIDs
+    const progress = Array.from(
+      this.fullState.messageIDObjects.values(),
+    ).filter(val => val !== undefined).length
+    const total = this.fullState.numberOfMessageIDs
 
-    let text = this.getProgressText(progressKey, meta)
+    const text = this.getProgressText(progressKey, meta)
 
-    debug(
+    dConnectionHandshake(
       `Progress Update +${diff}ms: ${JSON.stringify({ progressKey, meta })}`,
     )
 
@@ -760,7 +760,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
 
   attachHandlers = () => {
     mark(`binary-handshake`)
-    debug(`Attaching handlers`)
+    dConnectionHandshake(`Attaching handlers`)
     this.device.on(DEVICE_EVENTS.DATA, this.receiveHandler)
     this.interval = setInterval(() => {
       this.loop(this.getNow())
@@ -769,7 +769,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
 
   detachHandlers = () => {
     measure(`binary-handshake`)
-    debug(`Detaching handlers`)
+    dConnectionHandshake(`Detaching handlers`)
     this.device.removeListener(DEVICE_EVENTS.DATA, this.receiveHandler)
     if (this.interval) {
       clearInterval(this.interval)
@@ -777,7 +777,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
   }
 
   connect = () => {
-    debug(`Starting Handshake`)
+    dConnectionHandshake(`Starting Handshake`)
 
     this.attachHandlers()
 
@@ -793,7 +793,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
 
   loop = (now: number) => {
     if (now - this.timeoutSince > this.timeout) {
-      debug(`Timed out during:`, this.currentState.value)
+      dConnectionHandshake(`Timed out during:`, this.currentState.value)
       this.dispatch({ type: TRANSITIONS.TIMEOUT })
       this.timeoutSince = now
     }

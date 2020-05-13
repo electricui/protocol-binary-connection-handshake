@@ -202,7 +202,7 @@ function buildCompliantDevice<S extends StateShape>(
                 Object.keys(state).filter(
                   (msgId, index) =>
                     (index + options.modulusMessageIDListReplyOffset) %
-                    options.modulusMessageIDListReplies ===
+                      options.modulusMessageIDListReplies ===
                     0,
                 ),
               )
