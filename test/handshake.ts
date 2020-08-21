@@ -1,3 +1,4 @@
+/* eslint-disable no-case-declarations */
 import * as sinon from 'sinon'
 
 import BinaryConnectionHandshake, {
@@ -19,8 +20,8 @@ import FakeTimers from '@sinonjs/fake-timers'
 import { Subscription } from 'rxjs'
 
 const delay = (delay: number) => {
-  return new Promise((res, rej) => {
-    setTimeout(res, delay)
+  return new Promise((resolve, reject) => {
+    setTimeout(resolve, delay)
     clock.tickAsync(delay)
   })
 }
@@ -202,7 +203,7 @@ function buildCompliantDevice<S extends StateShape>(
                 Object.keys(state).filter(
                   (msgId, index) =>
                     (index + options.modulusMessageIDListReplyOffset) %
-                      options.modulusMessageIDListReplies ===
+                    options.modulusMessageIDListReplies ===
                     0,
                 ),
               )
@@ -277,7 +278,7 @@ function spyHandshakeProgress(handshake: BinaryConnectionHandshake) {
   const success = new Promise((resolve, reject) => {
     // Once the current stack frame has collapsed down, subscribe
     process.nextTick(() => {
-      let sub = handshake.observable.subscribe(
+      const sub = handshake.observable.subscribe(
         progressSpy,
         (...args) => {
           errorSpy(...args)
@@ -500,6 +501,7 @@ describe('Connection Handshake', () => {
 
     let finished = false
 
+    // eslint-disable-next-line promise/catch-or-return
     success.then(() => {
       finished = true
     })
