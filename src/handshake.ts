@@ -566,7 +566,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     return new Date().getTime()
   }
 
-  dispatch = (event: Event) => {
+  dispatch = (event: MessageEvent) => {
     dConnectionHandshake(' > STATE TRANSITION', this.currentState.value)
     dConnectionHandshake(' > EVENT', event)
 
@@ -647,13 +647,21 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
       switch (messageID) {
         case this.fullState.listMessageID:
           measure(`binary-handshake:request-list`)
-          this.dispatch({ type: TRANSITIONS.RECEIVED_MESSAGEIDS, payload })
+          this.dispatch({
+            type: TRANSITIONS.RECEIVED_MESSAGEIDS,
+            payload,
+            messageID,
+          })
           this.timeoutSince = this.getNow()
 
           return
         case this.fullState.amountMessageID:
           this.fullState.numberOfMessageIDs = payload
-          this.dispatch({ type: TRANSITIONS.RECEIVED_COUNT, payload })
+          this.dispatch({
+            type: TRANSITIONS.RECEIVED_COUNT,
+            payload,
+            messageID,
+          })
           this.timeoutSince = this.getNow()
 
           this.updateProgress(PROGRESS_KEYS.RECEIVED_AMOUNT_OF_MESSAGEIDS, {
@@ -794,7 +802,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
   loop = (now: number) => {
     if (now - this.timeoutSince > this.timeout) {
       dConnectionHandshake(`Timed out during:`, this.currentState.value)
-      this.dispatch({ type: TRANSITIONS.TIMEOUT })
+      this.dispatch({ type: TRANSITIONS.TIMEOUT, messageID: '' })
       this.timeoutSince = now
     }
   }
