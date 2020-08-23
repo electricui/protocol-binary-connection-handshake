@@ -1,4 +1,5 @@
 import {
+  CancellationToken,
   DEVICE_EVENTS,
   Device,
   DeviceHandshake,
@@ -440,6 +441,7 @@ interface FullStateShape {
 
 interface ConnectionHandshakeOptions {
   device: Device
+  cancellationToken: CancellationToken
   timeout?: number
   preset: 'custom' | 'default'
   requestListMessageID?: string
@@ -488,7 +490,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
   ) => string | null
 
   constructor(options: ConnectionHandshakeOptions) {
-    super(options.device)
+    super(options.device, options.cancellationToken)
     let messageIDs: HandshakeMessageIDs
 
     if (options.preset === 'custom') {
@@ -600,7 +602,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     callback.metadata.internal = true
     callback.metadata.query = false
 
-    const reply = this.device.write(callback)
+    const reply = this.device.write(callback, this.cancellationToken)
 
     return reply.catch(err => {
       console.warn("Couldn't send callback during handshake")
@@ -615,7 +617,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     callback.metadata.internal = false
     callback.metadata.query = true
 
-    return this.device.write(callback).catch(err => {
+    return this.device.write(callback, this.cancellationToken).catch(err => {
       console.warn("Couldn't send query during handshake")
     })
   }
