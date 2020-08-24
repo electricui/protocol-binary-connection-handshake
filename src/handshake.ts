@@ -493,6 +493,12 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     super(options.device, options.cancellationToken)
     let messageIDs: HandshakeMessageIDs
 
+    if (!options.cancellationToken) {
+      throw new Error(
+        `Binary Protocol Handshake was created without a CancellationToken`,
+      )
+    }
+
     if (options.preset === 'custom') {
       if (
         !options.requestListMessageID ||
