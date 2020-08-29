@@ -203,7 +203,7 @@ function buildCompliantDevice<S extends StateShape>(
                 Object.keys(state).filter(
                   (msgId, index) =>
                     (index + options.modulusMessageIDListReplyOffset) %
-                    options.modulusMessageIDListReplies ===
+                      options.modulusMessageIDListReplies ===
                     0,
                 ),
               )
@@ -261,7 +261,7 @@ function monitorDeviceState<S extends StateShape = typeof defaultState>(
 ): S {
   const receivedState: StateShape = {}
 
-  device.on(DEVICE_EVENTS.DATA, (message: Message) => {
+  device.on(DEVICE_EVENTS.DATA, (device: Device, message: Message) => {
     if (!message.metadata.internal) {
       receivedState[message.messageID] = message.payload
     }
