@@ -1,5 +1,6 @@
 import {
   CancellationToken,
+  Connection,
   DEVICE_EVENTS,
   Device,
   DeviceHandshake,
@@ -646,7 +647,11 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     this.error(new Error('Maximum retries hit.'))
   }
 
-  receiveHandler = (message: Message) => {
+  receiveHandler = (
+    device: Device,
+    message: Message,
+    connection?: Connection,
+  ) => {
     const internal = message.metadata.internal
     const messageID = message.messageID
     const payload = message.payload
