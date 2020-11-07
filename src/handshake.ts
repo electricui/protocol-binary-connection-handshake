@@ -13,9 +13,7 @@ import { mark, measure } from './perf'
 
 import debug from 'debug'
 
-const dConnectionHandshake = debug(
-  'electricui-protocol-binary:connection-handshake',
-)
+const dConnectionHandshake = debug('electricui-protocol-binary:connection-handshake')
 
 interface Event {
   type: string
@@ -30,11 +28,7 @@ interface MessageEvent extends Event {
 type Dispatch = (event: Event) => void
 
 interface ActionMap {
-  [key: string]: (
-    fullState: FullStateShape,
-    event: Event,
-    dispatch: Dispatch,
-  ) => void
+  [key: string]: (fullState: FullStateShape, event: Event, dispatch: Dispatch) => void
 }
 
 export const enum PROGRESS_KEYS {
@@ -50,11 +44,7 @@ export const enum PROGRESS_KEYS {
 }
 
 const actionMap: ActionMap = {
-  requestList: (
-    fullState: FullStateShape,
-    event: Event,
-    dispatch: Dispatch,
-  ) => {
+  requestList: (fullState: FullStateShape, event: Event, dispatch: Dispatch) => {
     mark(`binary-handshake:request-list`)
 
     fullState.updateProgress(PROGRESS_KEYS.REQUEST_LIST, {
@@ -63,11 +53,7 @@ const actionMap: ActionMap = {
 
     return fullState.sendCallback(fullState.requestListMessageID)
   },
-  requestObjects: (
-    fullState: FullStateShape,
-    event: Event,
-    dispatch: Dispatch,
-  ) => {
+  requestObjects: (fullState: FullStateShape, event: Event, dispatch: Dispatch) => {
     mark(`binary-handshake:request-objects`)
 
     fullState.updateProgress(PROGRESS_KEYS.REQUEST_OBJECTS, {
@@ -76,11 +62,7 @@ const actionMap: ActionMap = {
 
     return fullState.sendCallback(fullState.requestObjectsMessageID)
   },
-  appendReceived: (
-    fullState: FullStateShape,
-    event: Event,
-    dispatch: Dispatch,
-  ) => {
+  appendReceived: (fullState: FullStateShape, event: Event, dispatch: Dispatch) => {
     const allSet = new Set(fullState.messageIDsReceived)
 
     for (const messageID of event.payload) {
@@ -94,34 +76,20 @@ const actionMap: ActionMap = {
       total: fullState.messageIDsReceived.length,
     })
   },
-  populateHashmap: (
-    fullState: FullStateShape,
-    event: Event,
-    dispatch: Dispatch,
-  ) => {
+  populateHashmap: (fullState: FullStateShape, event: Event, dispatch: Dispatch) => {
     const allReceived = fullState.messageIDsReceived
 
     for (const messageID of allReceived) {
       fullState.messageIDObjects.set(messageID, undefined)
     }
   },
-  logIndividualRequestMode: (
-    fullState: FullStateShape,
-    event: Event,
-    dispatch: Dispatch,
-  ) => {
+  logIndividualRequestMode: (fullState: FullStateShape, event: Event, dispatch: Dispatch) => {
     fullState.updateProgress(PROGRESS_KEYS.SWITCH_INDIVIDUAL_REQUEST_MODE, {
-      received: Array.from(fullState.messageIDObjects.values()).filter(
-        val => val !== undefined,
-      ).length,
+      received: Array.from(fullState.messageIDObjects.values()).filter(val => val !== undefined).length,
       total: fullState.messageIDsReceived.length,
     })
   },
-  requestIndividual: (
-    fullState: FullStateShape,
-    event: Event,
-    dispatch: Dispatch,
-  ) => {
+  requestIndividual: (fullState: FullStateShape, event: Event, dispatch: Dispatch) => {
     const allMessageIDs = fullState.messageIDsReceived
 
     for (const messageID of allMessageIDs) {
@@ -146,29 +114,19 @@ const actionMap: ActionMap = {
     */
 
     /* istanbul ignore next */
-    throw new Error(
-      `All ${allMessageIDs.length} messageIDs had data, why requesting individual?`,
-    )
+    throw new Error(`All ${allMessageIDs.length} messageIDs had data, why requesting individual?`)
   },
-  addObject: (
-    fullState: FullStateShape,
-    event: MessageEvent,
-    dispatch: Dispatch,
-  ) => {
+  addObject: (fullState: FullStateShape, event: MessageEvent, dispatch: Dispatch) => {
     if (fullState.messageIDObjects.get(event.messageID) !== undefined) {
       dConnectionHandshake(
-        `received ${
-          event.messageID
-        } again, payload was ${fullState.messageIDObjects.get(
+        `received ${event.messageID} again, payload was ${fullState.messageIDObjects.get(
           event.messageID,
         )}, and is now ${event.payload}`,
       )
     }
 
     if (event.payload === undefined) {
-      dConnectionHandshake(
-        `Event payload for ${event.messageID} was undefined, setting to null`,
-      )
+      dConnectionHandshake(`Event payload for ${event.messageID} was undefined, setting to null`)
       event.payload = null
     }
 
@@ -178,18 +136,10 @@ const actionMap: ActionMap = {
       messageID: event.messageID,
     })
   },
-  incrementRetries: (
-    fullState: FullStateShape,
-    event: Event,
-    dispatch: Dispatch,
-  ) => {
+  incrementRetries: (fullState: FullStateShape, event: Event, dispatch: Dispatch) => {
     fullState.retries = fullState.retries + 1
   },
-  resetRetries: (
-    fullState: FullStateShape,
-    event: Event,
-    dispatch: Dispatch,
-  ) => {
+  resetRetries: (fullState: FullStateShape, event: Event, dispatch: Dispatch) => {
     fullState.retries = 0
   },
   onFinish: (fullState: FullStateShape, event: Event, dispatch: Dispatch) => {
@@ -295,11 +245,7 @@ const stateMachine = Machine(
       request_objects_individually: {
         initial: 'await_object',
         // Ask for our first messageID
-        onEntry: [
-          'resetRetries',
-          'logIndividualRequestMode',
-          'requestIndividual',
-        ],
+        onEntry: ['resetRetries', 'logIndividualRequestMode', 'requestIndividual'],
         states: {
           await_object: {
             on: {
@@ -377,10 +323,7 @@ const stateMachine = Machine(
 
         return true
       },
-      allReceivedWhenThisAdded: (
-        fullState: FullStateShape,
-        event: MessageEvent,
-      ) => {
+      allReceivedWhenThisAdded: (fullState: FullStateShape, event: MessageEvent) => {
         // and check if we're done
         const allMessageIDs = fullState.messageIDsReceived
 
@@ -452,10 +395,7 @@ interface ConnectionHandshakeOptions {
   /**
    * Each progress message can be customised with either a string or a function that receives the retry number
    */
-  progressText?: (
-    progressKey: PROGRESS_KEYS,
-    meta: ProgressMeta,
-  ) => string | null
+  progressText?: (progressKey: PROGRESS_KEYS, meta: ProgressMeta) => string | null
 }
 
 interface HandshakeMessageIDs {
@@ -485,19 +425,14 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
   private interval: NodeJS.Timer | null = null
   private loopInterval: number = 50
   private lastProgress: number
-  private getProgressText: (
-    progressKey: PROGRESS_KEYS,
-    meta: ProgressMeta,
-  ) => string | null
+  private getProgressText: (progressKey: PROGRESS_KEYS, meta: ProgressMeta) => string | null
 
   constructor(options: ConnectionHandshakeOptions) {
     super(options.device, options.cancellationToken)
     let messageIDs: HandshakeMessageIDs
 
     if (!options.cancellationToken) {
-      throw new Error(
-        `Binary Protocol Handshake was created without a CancellationToken`,
-      )
+      throw new Error(`Binary Protocol Handshake was created without a CancellationToken`)
     }
 
     if (options.preset === 'custom') {
@@ -507,9 +442,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
         !options.amountMessageID ||
         !options.listMessageID
       ) {
-        throw new Error(
-          'Need to specify all messageIDs when not using a preset with a BinaryConnectionHandshake',
-        )
+        throw new Error('Need to specify all messageIDs when not using a preset with a BinaryConnectionHandshake')
       }
 
       if (
@@ -520,9 +453,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
           options.listMessageID,
         ]).size !== 4
       ) {
-        throw new Error(
-          'Duplicate messageID used in custom setup of BinaryConnectionHandshake.',
-        )
+        throw new Error('Duplicate messageID used in custom setup of BinaryConnectionHandshake.')
       }
 
       messageIDs = {
@@ -534,8 +465,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     } else {
       messageIDs = {
         requestListMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_LIST,
-        requestObjectsMessageID:
-          MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS,
+        requestObjectsMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_REQUEST_MESSAGE_OBJECTS,
         listMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_ITEM,
         amountMessageID: MESSAGEIDS.READWRITE_MESSAGEIDS_COUNT,
       }
@@ -580,11 +510,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     dConnectionHandshake(' > EVENT', event)
 
     // Calculate the next state
-    const nextState = stateMachine.transition(
-      this.currentState,
-      event,
-      this.fullState,
-    )
+    const nextState = stateMachine.transition(this.currentState, event, this.fullState)
 
     // Action before transition
     nextState.actions.forEach(actionKey => {
@@ -647,11 +573,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     this.error(new Error('Maximum retries hit.'))
   }
 
-  receiveHandler = (
-    device: Device,
-    message: Message,
-    connection?: Connection,
-  ) => {
+  receiveHandler = (device: Device, message: Message, connection?: Connection) => {
     const internal = message.metadata.internal
     const messageID = message.messageID
     const payload = message.payload
@@ -689,14 +611,8 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
 
     // it's a developer packet, sent during the correct time
     if (
-      matchesState(
-        this.currentState.value,
-        'request_objects_bulk.await_objects',
-      ) ||
-      matchesState(
-        this.currentState.value,
-        'request_objects_individually.await_object',
-      )
+      matchesState(this.currentState.value, 'request_objects_bulk.await_objects') ||
+      matchesState(this.currentState.value, 'request_objects_individually.await_object')
     ) {
       // Do this in two steps
       this.dispatch({ type: TRANSITIONS.RECEIVED_OBJECT, messageID, payload })
@@ -704,16 +620,11 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
       this.timeoutSince = this.getNow()
     } else {
       // received a developer packet outside of our request window
-      dConnectionHandshake(
-        `Received a developer packet outside of our request window, ${messageID}`,
-      )
+      dConnectionHandshake(`Received a developer packet outside of our request window, ${messageID}`)
     }
   }
 
-  defaultProgressText = (
-    progressKey: PROGRESS_KEYS,
-    meta: ProgressMeta,
-  ): string | null => {
+  defaultProgressText = (progressKey: PROGRESS_KEYS, meta: ProgressMeta): string | null => {
     switch (progressKey) {
       case PROGRESS_KEYS.FINISHED:
         return 'Finished'
@@ -729,22 +640,16 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
 
       case PROGRESS_KEYS.REQUEST_LIST:
         return `Requesting list of MessageIDs${
-          meta.retries !== undefined && meta.retries > 0
-            ? ` (retry #${meta.retries})`
-            : ''
+          meta.retries !== undefined && meta.retries > 0 ? ` (retry #${meta.retries})` : ''
         }`
 
       case PROGRESS_KEYS.REQUEST_OBJECTS:
         return `Requesting bulk data${
-          meta.retries !== undefined && meta.retries > 0
-            ? ` (retry #${meta.retries})`
-            : ''
+          meta.retries !== undefined && meta.retries > 0 ? ` (retry #${meta.retries})` : ''
         }`
       case PROGRESS_KEYS.REQUEST_INDIVIDUAL:
         return `Requesting ${meta.messageID}${
-          meta.retries !== undefined && meta.retries > 0
-            ? ` (retry #${meta.retries})`
-            : ''
+          meta.retries !== undefined && meta.retries > 0 ? ` (retry #${meta.retries})` : ''
         }`
 
       case PROGRESS_KEYS.SWITCH_INDIVIDUAL_REQUEST_MODE:
@@ -761,16 +666,12 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     const now = this.getNow()
     const diff = now - this.lastProgress
 
-    const progress = Array.from(
-      this.fullState.messageIDObjects.values(),
-    ).filter(val => val !== undefined).length
+    const progress = Array.from(this.fullState.messageIDObjects.values()).filter(val => val !== undefined).length
     const total = this.fullState.numberOfMessageIDs
 
     const text = this.getProgressText(progressKey, meta)
 
-    dConnectionHandshake(
-      `Progress Update +${diff}ms: ${JSON.stringify({ progressKey, meta })}`,
-    )
+    dConnectionHandshake(`Progress Update +${diff}ms: ${JSON.stringify({ progressKey, meta })}`)
 
     if (text !== null) {
       this.progress(new Progress(progress, total, text))
