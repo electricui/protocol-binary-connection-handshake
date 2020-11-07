@@ -535,24 +535,52 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     callback.metadata.internal = true
     callback.metadata.query = false
 
-    const reply = this.device.write(callback, this.cancellationToken)
+    const cancellationToken = new CancellationToken(`Send Callback for handshake: ${messageID}`)
+    // Cancel this callback request if the overarching cancellation token triggers
+    this.cancellationToken.subscribe(cancellationToken.cancel)
 
-    return reply.catch(err => {
-      console.warn("Couldn't send callback during handshake")
-    })
+    return this.device
+      .write(callback, cancellationToken)
+      .catch(err => {
+        if (cancellationToken.caused(err)) {
+          return
+        }
+
+        // Warn if there's an error that wasn't the cancellation token.
+        console.warn("Couldn't send callback during handshake", err)
+      })
+      .finally(() => {
+        // Unsubscribe from the overarching cancellation token once this is dealt with
+        this.cancellationToken.unsubscribe(cancellationToken.cancel)
+      })
   }
 
   sendQuery = (messageID: string) => {
     dConnectionHandshake('Sent Query', messageID)
 
-    const callback = new Message(messageID, null)
-    callback.metadata.type = TYPES.CALLBACK
-    callback.metadata.internal = false
-    callback.metadata.query = true
+    const query = new Message(messageID, null)
+    query.metadata.type = TYPES.CALLBACK
+    query.metadata.internal = false
+    query.metadata.query = true
 
-    return this.device.write(callback, this.cancellationToken).catch(err => {
-      console.warn("Couldn't send query during handshake")
-    })
+    const cancellationToken = new CancellationToken(`Send Query for handshake: ${messageID}`)
+    // Cancel this callback request if the overarching cancellation token triggers
+    this.cancellationToken.subscribe(cancellationToken.cancel)
+
+    return this.device
+      .write(query, cancellationToken)
+      .catch(err => {
+        if (cancellationToken.caused(err)) {
+          return
+        }
+
+        // Warn if there's an error that wasn't the cancellation token.
+        console.warn("Couldn't send query during handshake", err)
+      })
+      .finally(() => {
+        // Unsubscribe from the overarching cancellation token once this is dealt with
+        this.cancellationToken.unsubscribe(cancellationToken.cancel)
+      })
   }
 
   onFinish = () => {
