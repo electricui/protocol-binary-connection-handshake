@@ -1,6 +1,6 @@
 {
   "name": "@electricui/protocol-binary-connection-handshake",
-  "version": "0.8.2",
+  "version": "0.8.5-prerelease.3",
   "description": "ElectricUI Binary Protocol Connection Handshake Manager",
   "electricui-dev": true,
   "author": "Electric UI <support@electricui.com> (https://electricui.com)",
@@ -18,7 +18,7 @@
     "manifest.json"
   ],
   "dependencies": {
-    "@electricui/core": "^0.8.2",
+    "@electricui/core": "^0.8.5-prerelease.3",
     "better-queue": "^3.8.10",
     "bluebird": "^3.7.2",
     "debug": "^4.3.1",
