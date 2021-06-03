@@ -13,7 +13,11 @@ import { mark, measure } from './perf'
 
 import debug from 'debug'
 
-const dConnectionHandshake = debug('electricui-protocol-binary:connection-handshake')
+const dConnectionHandshakeEvents = debug('electricui-protocol-binary:connection-handshake:events')
+const dConnectionHandshakeStateTransitions = debug('electricui-protocol-binary:connection-handshake:state-transitions')
+const dConnectionHandshakeProgressUpdates = debug('electricui-protocol-binary:connection-handshake:progress-updates')
+const dConnectionHandshakeOutgoing = debug('electricui-protocol-binary:connection-handshake:outgoing')
+const dConnectionHandshake = debug('electricui-protocol-binary:connection-handshake:general')
 
 interface Event {
   type: string
@@ -49,6 +53,7 @@ const actionMap: ActionMap = {
 
     fullState.updateProgress(PROGRESS_KEYS.REQUEST_LIST, {
       retries: fullState.retries,
+      received: fullState.messageIDsReceived,
     })
 
     return fullState.sendCallback(fullState.requestListMessageID)
@@ -73,6 +78,7 @@ const actionMap: ActionMap = {
     fullState.messageIDsReceived = Array.from(allSet.values())
 
     fullState.updateProgress(PROGRESS_KEYS.RECEIVED_MESSAGEIDS, {
+      received: fullState.messageIDsReceived,
       total: fullState.messageIDsReceived.length,
     })
   },
@@ -85,7 +91,13 @@ const actionMap: ActionMap = {
   },
   logIndividualRequestMode: (fullState: FullStateShape, event: Event, dispatch: Dispatch) => {
     fullState.updateProgress(PROGRESS_KEYS.SWITCH_INDIVIDUAL_REQUEST_MODE, {
-      received: Array.from(fullState.messageIDObjects.values()).filter(val => val !== undefined).length,
+      received: Array.from(fullState.messageIDObjects.entries())
+        .filter(entry => entry[1] !== undefined)
+        .map(entry => entry[0]),
+      waiting: Array.from(fullState.messageIDObjects.entries())
+        .filter(entry => entry[1] === undefined)
+        .map(entry => entry[0]),
+      receivedCount: Array.from(fullState.messageIDObjects.values()).filter(val => val !== undefined).length,
       total: fullState.messageIDsReceived.length,
     })
   },
@@ -99,6 +111,14 @@ const actionMap: ActionMap = {
         fullState.updateProgress(PROGRESS_KEYS.REQUEST_INDIVIDUAL, {
           messageID,
           retries: fullState.retries,
+          received: Array.from(fullState.messageIDObjects.entries())
+            .filter(entry => entry[1] !== undefined)
+            .map(entry => entry[0]),
+          waiting: Array.from(fullState.messageIDObjects.entries())
+            .filter(entry => entry[1] === undefined)
+            .map(entry => entry[0]),
+          receivedCount: Array.from(fullState.messageIDObjects.values()).filter(val => val !== undefined).length,
+          total: fullState.messageIDsReceived.length,
         })
 
         return
@@ -113,7 +133,6 @@ const actionMap: ActionMap = {
         a timeout has been called, if a message were received during this time, `allReceivedWhenThisAdded` would avoid this action
     */
 
-    /* istanbul ignore next */
     throw new Error(`All ${allMessageIDs.length} messageIDs had data, why requesting individual?`)
   },
   addObject: (fullState: FullStateShape, event: MessageEvent, dispatch: Dispatch) => {
@@ -413,7 +432,9 @@ export interface ProgressMeta {
   messageID?: string
   retries?: number
   total?: number
-  received?: number
+  receivedCount?: number
+  received?: string[]
+  waiting?: string[]
 }
 
 export default class BinaryConnectionHandshake extends DeviceHandshake {
@@ -506,8 +527,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
   }
 
   dispatch = (event: MessageEvent) => {
-    dConnectionHandshake(' > STATE TRANSITION', this.currentState.value)
-    dConnectionHandshake(' > EVENT', event)
+    dConnectionHandshakeEvents('EVENT', event)
 
     // Calculate the next state
     const nextState = stateMachine.transition(this.currentState, event, this.fullState)
@@ -520,15 +540,14 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
       action(this.fullState, event, this.dispatch)
     })
 
+    dConnectionHandshakeStateTransitions('STATE', this.currentState.value, '->', nextState.value)
+
     // Commit the transition to the next state
     this.currentState = nextState
-
-    dConnectionHandshake(' > TO', nextState.value)
-    dConnectionHandshake(' ^^^ ')
   }
 
   sendCallback = (messageID: string) => {
-    dConnectionHandshake('Sent Callback', messageID)
+    dConnectionHandshakeOutgoing('Sent Callback', messageID)
 
     const callback = new Message(messageID, null)
     callback.metadata.type = TYPES.CALLBACK
@@ -556,7 +575,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
   }
 
   sendQuery = (messageID: string) => {
-    dConnectionHandshake('Sent Query', messageID)
+    dConnectionHandshakeOutgoing('Sent Query', messageID)
 
     const query = new Message(messageID, null)
     query.metadata.type = TYPES.CALLBACK
@@ -620,17 +639,17 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
           return
         case this.fullState.amountMessageID:
           this.fullState.numberOfMessageIDs = payload
+
+          this.updateProgress(PROGRESS_KEYS.RECEIVED_AMOUNT_OF_MESSAGEIDS, {
+            total: payload,
+          })
+
           this.dispatch({
             type: TRANSITIONS.RECEIVED_COUNT,
             payload,
             messageID,
           })
           this.timeoutSince = this.getNow()
-
-          this.updateProgress(PROGRESS_KEYS.RECEIVED_AMOUNT_OF_MESSAGEIDS, {
-            total: payload,
-          })
-
           return
         default:
           return
@@ -648,7 +667,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
       this.timeoutSince = this.getNow()
     } else {
       // received a developer packet outside of our request window
-      dConnectionHandshake(`Received a developer packet outside of our request window, ${messageID}`)
+      dConnectionHandshake(`Received a developer packet outside of our request window`, message)
     }
   }
 
@@ -681,7 +700,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
         }`
 
       case PROGRESS_KEYS.SWITCH_INDIVIDUAL_REQUEST_MODE:
-        return `Received ${((meta.received! / meta.total!) * 100).toFixed(
+        return `Received ${((meta.receivedCount! / meta.total!) * 100).toFixed(
           0,
         )}% of MessageIDs in bulk, switching to individual request mode`
 
@@ -699,7 +718,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
 
     const text = this.getProgressText(progressKey, meta)
 
-    dConnectionHandshake(`Progress Update +${diff}ms: ${JSON.stringify({ progressKey, meta })}`)
+    dConnectionHandshakeProgressUpdates(`Progress Update +${diff}ms: ${JSON.stringify({ progressKey, meta })}`)
 
     if (text !== null) {
       this.progress(new Progress(progress, total, text))
