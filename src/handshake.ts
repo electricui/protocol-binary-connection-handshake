@@ -1,17 +1,18 @@
+import debug from 'debug'
+import { matchesState, Machine } from 'xstate'
+
 import {
   CancellationToken,
   Connection,
-  DEVICE_EVENTS,
   Device,
   DeviceHandshake,
+  DEVICE_EVENTS,
   Message,
   Progress,
 } from '@electricui/core'
 import { MESSAGEIDS, TYPES } from '@electricui/protocol-binary-constants'
-import { Machine, matchesState } from 'xstate'
-import { mark, measure } from './perf'
 
-import debug from 'debug'
+import { mark, measure } from './perf'
 
 const dConnectionHandshakeEvents = debug('electricui-protocol-binary:connection-handshake:events')
 const dConnectionHandshakeStateTransitions = debug('electricui-protocol-binary:connection-handshake:state-transitions')
@@ -424,10 +425,6 @@ interface HandshakeMessageIDs {
   amountMessageID: string
 }
 
-interface ResponseObject {
-  [key: string]: any
-}
-
 export interface ProgressMeta {
   messageID?: string
   retries?: number
@@ -730,7 +727,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
   attachHandlers = () => {
     mark(`binary-handshake`)
     dConnectionHandshake(`Attaching handlers`)
-    this.device.on(DEVICE_EVENTS.DATA, this.receiveHandler)
+    this.device.on(DEVICE_EVENTS.RECEIVE_FROM_DEVICE, this.receiveHandler)
     this.interval = setInterval(() => {
       this.loop(this.getNow())
     }, this.loopInterval)
@@ -739,7 +736,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
   detachHandlers = () => {
     measure(`binary-handshake`)
     dConnectionHandshake(`Detaching handlers`)
-    this.device.removeListener(DEVICE_EVENTS.DATA, this.receiveHandler)
+    this.device.removeListener(DEVICE_EVENTS.RECEIVE_FROM_DEVICE, this.receiveHandler)
     if (this.interval) {
       clearInterval(this.interval)
     }
