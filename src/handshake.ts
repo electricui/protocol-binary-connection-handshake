@@ -11,6 +11,7 @@ import {
   Progress,
 } from '@electricui/core'
 import { MESSAGEIDS, TYPES } from '@electricui/protocol-binary-constants'
+import { AuditLog } from '@electricui/core'
 
 import { mark, measure } from './perf'
 
@@ -47,6 +48,10 @@ export const enum PROGRESS_KEYS {
   SWITCH_INDIVIDUAL_REQUEST_MODE = 'switch-to-individual-request-mode',
   FAILED = 'failed',
 }
+
+export const AUDIT_LOG_BINARY_HANDSHAKE = 'electricui-binary-protocol-handshake'
+
+export enum BINARY_HANDSHAKE_AUDIT_EVENTS {}
 
 const actionMap: ActionMap = {
   requestList: (fullState: FullStateShape, event: Event, dispatch: Dispatch) => {
@@ -401,6 +406,8 @@ interface FullStateShape {
 
   onFinish: () => void
   onFail: () => void
+
+  auditLog: AuditLog
 }
 
 interface ConnectionHandshakeOptions {
@@ -508,6 +515,8 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
 
       onFinish: this.onFinish,
       onFail: this.onFail,
+
+      auditLog: this.auditLog,
     }
 
     this.timeout = options.timeout ?? this.timeout
@@ -714,6 +723,8 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     const total = this.fullState.numberOfMessageIDs
 
     const text = this.getProgressText(progressKey, meta)
+
+    // this.auditLog.mark(progressKey, true, meta)
 
     dConnectionHandshakeProgressUpdates(`Progress Update +${diff}ms: ${JSON.stringify({ progressKey, meta })}`)
 
