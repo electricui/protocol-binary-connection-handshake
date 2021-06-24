@@ -731,6 +731,9 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     this.interval = setInterval(() => {
       this.loop(this.getNow())
     }, this.loopInterval)
+
+    // If the cancellation token triggers, detach our handlers
+    this.cancellationToken.subscribe(this.detachHandlers)
   }
 
   detachHandlers = () => {
@@ -740,6 +743,9 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     if (this.interval) {
       clearInterval(this.interval)
     }
+
+    // If we detach, also detach from the cancellation token
+    this.cancellationToken.unsubscribe(this.detachHandlers)
   }
 
   connect = () => {
