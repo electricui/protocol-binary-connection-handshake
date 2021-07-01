@@ -1,15 +1,8 @@
 import debug from 'debug'
 import { matchesState, Machine } from 'xstate'
+import { CancellationToken } from '@electricui/async-utilities'
 
-import {
-  CancellationToken,
-  Connection,
-  Device,
-  DeviceHandshake,
-  DEVICE_EVENTS,
-  Message,
-  Progress,
-} from '@electricui/core'
+import { Connection, Device, DeviceHandshake, DEVICE_EVENTS, Message, Progress } from '@electricui/core'
 import { MESSAGEIDS, TYPES } from '@electricui/protocol-binary-constants'
 import { AuditLog } from '@electricui/core'
 
