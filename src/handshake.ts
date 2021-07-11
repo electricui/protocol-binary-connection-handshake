@@ -132,6 +132,7 @@ const actionMap: ActionMap = {
         a timeout has been called, if a message were received during this time, `allReceivedWhenThisAdded` would avoid this action
     */
 
+    /* istanbul ignore next */
     throw new Error(`All ${allMessageIDs.length} messageIDs had data, why requesting individual?`)
   },
   addObject: (fullState: FullStateShape, event: MessageEvent, dispatch: Dispatch) => {
@@ -449,6 +450,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     super(options.device, options.cancellationToken)
     let messageIDs: HandshakeMessageIDs
 
+    // istanbul ignore next
     if (!options.cancellationToken) {
       throw new Error(`Binary Protocol Handshake was created without a CancellationToken`)
     }
@@ -522,7 +524,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
   }
 
   getNow = () => {
-    return new Date().getTime()
+    return Date.now()
   }
 
   dispatch = (event: MessageEvent) => {
@@ -560,6 +562,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     return this.device
       .write(callback, cancellationToken)
       .catch(err => {
+        // istanbul ignore next
         if (cancellationToken.caused(err)) {
           return
         }
@@ -588,6 +591,7 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     return this.device
       .write(query, cancellationToken)
       .catch(err => {
+        // istanbul ignore next
         if (cancellationToken.caused(err)) {
           return
         }
@@ -732,11 +736,9 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     mark(`binary-handshake`)
     dConnectionHandshake(`Attaching handlers`)
     this.device.on(DEVICE_EVENTS.RECEIVE_FROM_DEVICE, this.receiveHandler)
-    this.interval = setInterval(() => {
-      this.loop(this.getNow())
-    }, this.loopInterval)
+    this.interval = setInterval(this.loop, this.loopInterval)
 
-    // If the cancellation token triggers, detach our handlers
+    // If the cancellation token triggers, detach from the handlers
     this.cancellationToken.subscribe(this.detachHandlers)
   }
 
@@ -767,16 +769,14 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     )
   }
 
-  loop = (now: number) => {
+  loop = () => {
+    const now = this.getNow()
+
     if (now - this.timeoutSince > this.timeout) {
       dConnectionHandshake(`Timed out during:`, this.currentState.value)
       this.dispatch({ type: TRANSITIONS.TIMEOUT, messageID: '' })
       this.timeoutSince = now
     }
-  }
-
-  onCancel() {
-    this.detachHandlers()
   }
 
   getIdentifier() {
