@@ -534,8 +534,19 @@ export default class BinaryConnectionHandshake extends DeviceHandshake {
     const nextState = stateMachine.transition(this.currentState, event, this.fullState)
 
     // Action before transition
-    nextState.actions.forEach(actionKey => {
-      const action = actionMap[String(actionKey)]
+    nextState.actions.forEach(actionObj => {
+      const action = actionMap[actionObj.type]
+
+      // istanbul ignore next
+      if (!action) {
+        throw new Error(
+          `Unknown action (${actionObj.type}) returned as part of event ${JSON.stringify(
+            event,
+          )}, state change ${JSON.stringify(this.currentState.value)} -> ${JSON.stringify(
+            nextState.value,
+          )} during binary handshake.`,
+        )
+      }
 
       // run the action, they can directly mutate state if they want.
       action(this.fullState, event, this.dispatch)
