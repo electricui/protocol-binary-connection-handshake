@@ -464,7 +464,7 @@ describe('Connection Handshake', () => {
     const options = defaultOptions(state)
     options.sendHeartbeats = true
 
-    // This will execute syncronously unless we break it up
+    // This will execute synchronously unless we break it up
     options.mutableSwitches.replyWithNumberOfMessageIDs = false
 
     const { device, emitter } = buildCompliantDevice(state, options, () => connectionHandshake)
